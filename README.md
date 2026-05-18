@@ -20,6 +20,7 @@ Your display has already been flashed and assembled. You only need to connect it
 On your laptop, open a terminal in the supplied `helper` folder and run:
 
 ```powershell
+cd ./helper
 npm install
 npm start
 ```
