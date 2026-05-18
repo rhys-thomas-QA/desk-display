@@ -8,10 +8,161 @@
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <time.h>
+#include <mbedtls/base64.h>
+#include <mbedtls/gcm.h>
+#include <mbedtls/sha256.h>
 
 static Preferences s_prefs;
 static bool        s_prefsOpen = false;
 static char        s_lastError[64] = "";
+static const char  PROVISIONING_KDF_PREFIX[] = "desk-display provisioning v1";
+static const unsigned char PROVISIONING_AAD[] = "desk-display-provision-v1";
+
+static const char PUBLIC_ROOT_CA_PEM[] PROGMEM = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIICCTCCAY6gAwIBAgINAgPlwGjvYxqccpBQUjAKBggqhkjOPQQDAzBHMQswCQYDVQQGEwJV
+UzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2VzIExMQzEUMBIGA1UEAxMLR1RTIFJv
+b3QgUjQwHhcNMTYwNjIyMDAwMDAwWhcNMzYwNjIyMDAwMDAwWjBHMQswCQYDVQQGEwJVUzEi
+MCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2VzIExMQzEUMBIGA1UEAxMLR1RTIFJvb3Qg
+UjQwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAATzdHOnaItgrkO4NcWBMHtLSZ37wWHO5t5GvWvV
+YRg1rkDdc/eJkTBa6zzuhXyiQHY7qca4R9gq55KRanPpsXI5nymfopjTX15YhmUPoYRlBtHc
+i8nHc8iMai/lxKvRHYqjQjBAMA4GA1UdDwEB/wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MB0G
+A1UdDgQWBBSATNbrdP9JNqPV2Py1PsVq8JQdjDAKBggqhkjOPQQDAwNpADBmAjEA6ED/g94D
+9J+uHXqnLrmvT/aDHQ4thQEd0dlq7A/Cr8deVl5c1RxYIigL9zC2L7F8AjEA8GE8p/SgguMh
+1YQdc4acLa/KNJvxn7kjNuK8YAOdgLOaVsjh4rsUecrNIdSUtUlD
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAwTzELMAkG
+A1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2VhcmNoIEdyb3VwMRUw
+EwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4WhcNMzUwNjA0MTEwNDM4WjBP
+MQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgUmVzZWFyY2ggR3Jv
+dXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoC
+ggIBAK3oJHP0FDfzm54rVygch77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj
+/RQSa78f0uoxmyF+0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7i
+S4+3mX6UA5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW
+T8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyHB5T0Y3Hs
+LuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UCB5iPNgiV5+I3lg02
+dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUvKBds0pjBqAlkd25HN7rOrFle
+aJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWnOlFuhjuefXKnEgV4We0+UXgVCwOPjdAv
+BbI+e0ocS3MFEvzG6uBQE3xDk3SzynTnjh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymC
+zLq9gwQbooMDQaHWBfEbwrbwqHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC
+1CLQJ13hef4Y53CIrU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIB
+BjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq
+hkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZLubhzEFnT
+IZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ3BebYhtF8GaV0nxv
+wuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KKNFtY2PwByVS5uCbMiogziUwt
+hDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5ORAzI4JMPJ+GslWYHb4phowim57iaztX
+OoJwTdwJx4nLCgdNbOhdjsnvzqvHu7UrTkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIu
+vtd7u+Nxe5AW0wdeRlN8NwdCjNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1N
+bdWhscdCb+ZAJzVcoyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4k
+qKOJ2qxq4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA
+mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57demyPxgcY
+xn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
+-----END CERTIFICATE-----
+)EOF";
+
+static void configureSecureClient(WiFiClientSecure& client) {
+  client.setCACert(PUBLIC_ROOT_CA_PEM);
+}
+
+static void deriveProvisioningKey(const String& setupCode, uint8_t key[32]) {
+  mbedtls_sha256_context ctx;
+  mbedtls_sha256_init(&ctx);
+  mbedtls_sha256_starts_ret(&ctx, 0);
+  mbedtls_sha256_update_ret(&ctx,
+                            reinterpret_cast<const unsigned char*>(PROVISIONING_KDF_PREFIX),
+                            strlen(PROVISIONING_KDF_PREFIX));
+  mbedtls_sha256_update_ret(&ctx,
+                            reinterpret_cast<const unsigned char*>(setupCode.c_str()),
+                            setupCode.length());
+  mbedtls_sha256_finish_ret(&ctx, key);
+  mbedtls_sha256_free(&ctx);
+}
+
+static bool decodeBase64Field(JsonDocument& doc, const char* name,
+                              uint8_t* out, size_t capacity, size_t* outLen) {
+  const char* encoded = doc[name];
+  if (!encoded || !encoded[0]) {
+    Serial.printf("Provision envelope missing %s\n", name);
+    return false;
+  }
+
+  size_t decodedLen = 0;
+  int rc = mbedtls_base64_decode(out, capacity, &decodedLen,
+                                 reinterpret_cast<const unsigned char*>(encoded),
+                                 strlen(encoded));
+  if (rc != 0) {
+    Serial.printf("Provision base64 error on %s: %d\n", name, rc);
+    return false;
+  }
+
+  *outLen = decodedLen;
+  return true;
+}
+
+static bool decryptProvisioningPayload(const String& setupCode,
+                                       JsonDocument& envelope,
+                                       DynamicJsonDocument& provisionDoc) {
+  int version = envelope["version"] | 0;
+  const char* alg = envelope["alg"] | "";
+  if (version != 1 || strcmp(alg, "A256GCM") != 0) {
+    Serial.println("Unsupported provision envelope");
+    strlcpy(s_lastError, "Provision format error", sizeof(s_lastError));
+    return false;
+  }
+
+  uint8_t iv[12];
+  uint8_t tag[16];
+  uint8_t ciphertext[768];
+  uint8_t plaintext[sizeof(ciphertext) + 1];
+  size_t ivLen = 0;
+  size_t tagLen = 0;
+  size_t ciphertextLen = 0;
+
+  if (!decodeBase64Field(envelope, "iv", iv, sizeof(iv), &ivLen) ||
+      !decodeBase64Field(envelope, "tag", tag, sizeof(tag), &tagLen) ||
+      !decodeBase64Field(envelope, "ciphertext", ciphertext, sizeof(ciphertext), &ciphertextLen)) {
+    strlcpy(s_lastError, "Provision decode error", sizeof(s_lastError));
+    return false;
+  }
+
+  if (ivLen != sizeof(iv) || tagLen != sizeof(tag) || ciphertextLen >= sizeof(plaintext)) {
+    Serial.println("Provision envelope length error");
+    strlcpy(s_lastError, "Provision length error", sizeof(s_lastError));
+    return false;
+  }
+
+  uint8_t key[32];
+  deriveProvisioningKey(setupCode, key);
+
+  mbedtls_gcm_context gcm;
+  mbedtls_gcm_init(&gcm);
+  int rc = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, key, 256);
+  if (rc == 0) {
+    rc = mbedtls_gcm_auth_decrypt(&gcm, ciphertextLen,
+                                  iv, ivLen,
+                                  PROVISIONING_AAD, strlen(reinterpret_cast<const char*>(PROVISIONING_AAD)),
+                                  tag, tagLen,
+                                  ciphertext, plaintext);
+  }
+  mbedtls_gcm_free(&gcm);
+
+  if (rc != 0) {
+    Serial.printf("Provision decrypt error: %d\n", rc);
+    strlcpy(s_lastError, "Provision decrypt error", sizeof(s_lastError));
+    return false;
+  }
+
+  plaintext[ciphertextLen] = '\0';
+  DeserializationError err = deserializeJson(provisionDoc, reinterpret_cast<const char*>(plaintext));
+  if (err) {
+    Serial.println("Provision plaintext JSON error");
+    strlcpy(s_lastError, "Provision JSON error", sizeof(s_lastError));
+    return false;
+  }
+
+  return true;
+}
 
 static Preferences& prefs() {
   if (!s_prefsOpen) {
@@ -117,9 +268,10 @@ bool api_provision() {
   }
 
   HTTPClient http;
-  String url = "http://" + ip.toString() + ":3333/provision?code=" + setupCode;
+  String url = "http://" + ip.toString() + ":3333/provision";
   Serial.printf("Provisioning from: %s\n", url.c_str());
   http.begin(url);
+  http.addHeader("X-Setup-Code", setupCode);
   http.setTimeout(10000);
 
   int code = http.GET();
@@ -129,6 +281,12 @@ bool api_provision() {
       strlcpy(s_lastError, "Helper unreachable", sizeof(s_lastError));
     } else if (code == 403) {
       strlcpy(s_lastError, "Check setup code", sizeof(s_lastError));
+    } else if (code == 409) {
+      strlcpy(s_lastError, "Restart helper app", sizeof(s_lastError));
+    } else if (code == 410) {
+      strlcpy(s_lastError, "Helper code expired", sizeof(s_lastError));
+    } else if (code == 429) {
+      strlcpy(s_lastError, "Try setup later", sizeof(s_lastError));
     } else if (code == 503) {
       strlcpy(s_lastError, "Setup helper key", sizeof(s_lastError));
     } else {
@@ -138,13 +296,18 @@ bool api_provision() {
     return false;
   }
 
-  DynamicJsonDocument doc(768);
-  DeserializationError err = deserializeJson(doc, http.getStream());
+  DynamicJsonDocument envelope(1280);
+  DeserializationError err = deserializeJson(envelope, http.getStream());
   http.end();
 
   if (err) {
-    Serial.println("Provision JSON error");
+    Serial.println("Provision envelope JSON error");
     strlcpy(s_lastError, "Provision JSON error", sizeof(s_lastError));
+    return false;
+  }
+
+  DynamicJsonDocument doc(768);
+  if (!decryptProvisioningPayload(setupCode, envelope, doc)) {
     return false;
   }
 
@@ -170,6 +333,7 @@ bool api_provision() {
     prefs().remove("user_id");
   }
   Serial.println("Provisioned analytics credentials");
+  wifi_clear_setup_code();
   s_lastError[0] = '\0';
   return true;
 }
@@ -178,10 +342,18 @@ bool api_refresh_email() {
   IPAddress ip;
   if (!resolveHelper(ip)) return false;
 
+  String setupCode = wifi_get_setup_code();
+  setupCode.trim();
+  if (setupCode.isEmpty()) {
+    Serial.println("Profile refresh skipped: missing setup code");
+    return false;
+  }
+
   HTTPClient http;
   String url = "http://" + ip.toString() + ":3333/profile";
   Serial.printf("Refreshing profile from: %s\n", url.c_str());
   http.begin(url);
+  http.addHeader("X-Setup-Code", setupCode);
   http.setTimeout(10000);
 
   int code = http.GET();
@@ -201,6 +373,7 @@ bool api_refresh_email() {
   if (!email || !email[0]) { Serial.println("Profile: missing email"); return false; }
 
   prefs().putString("email", email);
+  wifi_clear_setup_code();
   Serial.println("Stored profile email");
   return true;
 }
@@ -346,7 +519,7 @@ GitHubStatusData api_poll_github_status() {
   GitHubStatusData result = {};
 
   WiFiClientSecure wifiClient;
-  wifiClient.setInsecure();
+  configureSecureClient(wifiClient);
 
   HTTPClient http;
   http.begin(wifiClient, "https://www.githubstatus.com/api/v2/summary.json");
@@ -521,7 +694,7 @@ StatusData api_poll() {
     Serial.printf("Polling Anthropic: %s\n", url.c_str());
 
     WiFiClientSecure wifiClient;
-    wifiClient.setInsecure();
+    configureSecureClient(wifiClient);
     HTTPClient http;
     http.begin(wifiClient, url);
     http.addHeader("x-api-key", apiKey);

@@ -1,6 +1,7 @@
 import express from 'express';
+import type { Request, Response } from 'express';
 import * as os from 'os';
-import { randomInt } from 'crypto';
+import { createCipheriv, createHash, randomBytes, randomInt } from 'crypto';
 import { Bonjour } from 'bonjour-service';
 import keytar from 'keytar';
 import { getCachedUserId, getEmail, setCachedUserId, writeConfig } from './config.js';
@@ -10,9 +11,19 @@ const PORT = 3333;
 const KEYCHAIN_SERVICE = 'desk-display';
 const KEYCHAIN_ACCOUNT = 'anthropic-analytics-key';
 const MONTHLY_LIMIT_USD = 200;
-const SETUP_CODE = String(randomInt(0, 1000000)).padStart(6, '0');
+const SETUP_CODE_DIGITS = 10;
+const SETUP_CODE_TTL_MINUTES = 30;
+const SETUP_CODE_TTL_MS = SETUP_CODE_TTL_MINUTES * 60 * 1000;
+const SETUP_CODE = String(randomInt(0, 10 ** SETUP_CODE_DIGITS)).padStart(SETUP_CODE_DIGITS, '0');
+const SETUP_CODE_EXPIRES_AT = Date.now() + SETUP_CODE_TTL_MS;
+const SETUP_LOCKOUT_MS = 60 * 1000;
+const MAX_SETUP_FAILURES = 8;
+const PROVISIONING_KDF_PREFIX = 'desk-display provisioning v1';
+const PROVISIONING_AAD = Buffer.from('desk-display-provision-v1', 'utf8');
 
 let provisioned = false;
+let failedSetupCodes = 0;
+let setupLockedUntil = 0;
 
 async function getApiKey(): Promise<string | null> {
   return keytar.getPassword(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
@@ -219,6 +230,7 @@ const READY_HTML = `<!DOCTYPE html>
     <p class="subtitle">Your helper is ready to provision the display.</p>
 
     <div class="setup-code">{{SETUP_CODE}}</div>
+    <p class="subtitle">This code is valid for {{SETUP_CODE_TTL_MINUTES}} minutes and is accepted once.</p>
 
     <div class="step">
       <div class="step-num">1</div>
@@ -287,6 +299,27 @@ function localHelperUrls(): string[] {
   return [...urls];
 }
 
+function normalizedRemoteAddress(req: Request): string {
+  const address = req.socket.remoteAddress ?? '';
+  return address.startsWith('::ffff:') ? address.slice(7) : address;
+}
+
+function localMachineAddresses(): Set<string> {
+  const addresses = new Set(['127.0.0.1', '::1', 'localhost']);
+  for (const entries of Object.values(os.networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      addresses.add(entry.address);
+    }
+  }
+  return addresses;
+}
+
+function requireLocalBrowser(req: Request, res: Response): boolean {
+  if (localMachineAddresses().has(normalizedRemoteAddress(req))) return true;
+  res.status(403).send('Open this setup page on the laptop running the helper app.');
+  return false;
+}
+
 function readyHtml(): string {
   const urls = localHelperUrls();
   const fallback = urls.length
@@ -297,6 +330,7 @@ function readyHtml(): string {
     : '';
   return READY_HTML
     .replace('{{SETUP_CODE}}', SETUP_CODE)
+    .replace('{{SETUP_CODE_TTL_MINUTES}}', String(SETUP_CODE_TTL_MINUTES))
     .replace('{{NETWORK_URLS}}', fallback);
 }
 
@@ -304,19 +338,84 @@ function validSetupCode(value: unknown): boolean {
   return typeof value === 'string' && value.trim() === SETUP_CODE;
 }
 
+function provisioningEncryptionKey(): Buffer {
+  return createHash('sha256')
+    .update(PROVISIONING_KDF_PREFIX, 'utf8')
+    .update(SETUP_CODE, 'utf8')
+    .digest();
+}
+
+function encryptProvisioningPayload(payload: unknown): object {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', provisioningEncryptionKey(), iv);
+  cipher.setAAD(PROVISIONING_AAD);
+
+  const ciphertext = Buffer.concat([
+    cipher.update(JSON.stringify(payload), 'utf8'),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+
+  return {
+    version: 1,
+    alg: 'A256GCM',
+    iv: iv.toString('base64'),
+    tag: tag.toString('base64'),
+    ciphertext: ciphertext.toString('base64'),
+  };
+}
+
+function setupCodeExpired(): boolean {
+  return Date.now() > SETUP_CODE_EXPIRES_AT;
+}
+
+function requireSetupCode(req: Request, res: Response): boolean {
+  if (setupCodeExpired()) {
+    res.status(410).json({ error: 'Setup code expired. Restart the helper app.' });
+    return false;
+  }
+
+  if (Date.now() < setupLockedUntil) {
+    res.status(429).json({ error: 'Too many invalid setup codes. Wait one minute and try again.' });
+    return false;
+  }
+
+  if (!validSetupCode(req.get('x-setup-code'))) {
+    failedSetupCodes++;
+    if (failedSetupCodes >= MAX_SETUP_FAILURES) {
+      setupLockedUntil = Date.now() + SETUP_LOCKOUT_MS;
+      failedSetupCodes = 0;
+    }
+    res.status(403).json({ error: 'Invalid setup code' });
+    return false;
+  }
+
+  failedSetupCodes = 0;
+  setupLockedUntil = 0;
+  return true;
+}
+
 async function main() {
   const app = express();
+  app.disable('x-powered-by');
+  app.use((_req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
   app.use(express.urlencoded({ extended: false }));
 
-  app.get('/', async (_req, res) => {
+  app.get('/', async (req, res) => {
+    if (!requireLocalBrowser(req, res)) return;
     res.redirect(await isReady() ? '/ready' : '/setup');
   });
 
-  app.get('/setup', (_req, res) => {
+  app.get('/setup', (req, res) => {
+    if (!requireLocalBrowser(req, res)) return;
     res.send(SETUP_HTML.replace('{{ERROR}}', ''));
   });
 
   app.post('/setup', async (req, res) => {
+    if (!requireLocalBrowser(req, res)) return;
     const { apiKey, email } = req.body as { apiKey?: string; email?: string };
 
     if (!apiKey?.trim() || !email?.trim()) {
@@ -341,6 +440,7 @@ async function main() {
       await keytar.setPassword(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, apiKey.trim());
       writeConfig({ email: email.trim() });
       setCachedUserId(email.trim(), userId);
+      provisioned = false;
 
       const usage = await getMonthlyUsage(email.trim(), apiKey.trim(), MONTHLY_LIMIT_USD);
       if (usage.daysChecked === 0) {
@@ -355,24 +455,28 @@ async function main() {
     }
   });
 
-  app.get('/ready', async (_req, res) => {
+  app.get('/ready', async (req, res) => {
+    if (!requireLocalBrowser(req, res)) return;
     if (!await isReady()) { res.redirect('/setup'); return; }
     res.send(readyHtml());
   });
 
-  app.get('/provision-status', (_req, res) => {
+  app.get('/provision-status', (req, res) => {
+    if (!requireLocalBrowser(req, res)) return;
     res.json({ provisioned });
   });
 
-  app.get('/profile', (_req, res) => {
+  app.get('/profile', (req, res) => {
+    if (!requireSetupCode(req, res)) return;
     const email = getEmail();
     if (!email) { res.status(503).json({ error: 'Not configured' }); return; }
     res.json({ email });
   });
 
   app.get('/provision', async (req, res) => {
-    if (!validSetupCode(req.query.code)) {
-      res.status(403).json({ error: 'Invalid setup code' });
+    if (!requireSetupCode(req, res)) return;
+    if (provisioned) {
+      res.status(409).json({ error: 'Already provisioned. Restart the helper app to provision again.' });
       return;
     }
 
@@ -397,11 +501,12 @@ async function main() {
       return;
     }
 
+    res.json(encryptProvisioningPayload({ api_key: apiKey, user_id: userId, email }));
     provisioned = true;
-    res.json({ api_key: apiKey, user_id: userId, email });
   });
 
-  app.get('/usage', async (_req, res) => {
+  app.get('/usage', async (req, res) => {
+    if (!requireSetupCode(req, res)) return;
     const apiKey = await getApiKey();
     const email = getEmail();
     if (!apiKey || !email) { res.status(503).json({ error: 'Helper setup needed' }); return; }

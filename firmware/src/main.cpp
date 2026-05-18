@@ -30,6 +30,20 @@ static bool     s_factoryResetting = false;
 
 static void lvgl_tick();
 
+static String device_hostname() {
+  uint64_t mac = ESP.getEfuseMac();
+  char host[24];
+  snprintf(host, sizeof(host), "desk-display-%06X", (uint32_t)(mac & 0xFFFFFF));
+  return String(host);
+}
+
+static void setup_portal_started(const char* ssid, const char* password) {
+  char msg[96];
+  snprintf(msg, sizeof(msg), "Setup WiFi\n%s\nPass: %s", ssid, password);
+  ui_set_status(msg);
+  lvgl_tick();
+}
+
 static void factory_reset() {
   if (s_factoryResetting) return;
   s_factoryResetting = true;
@@ -96,7 +110,7 @@ void setup() {
   ui_set_status("Connecting WiFi...");
   lvgl_tick();
 
-  if (!wifi_connect()) {
+  if (!wifi_connect(setup_portal_started)) {
     ui_set_status("WiFi failed.\nReset to retry.");
     while (true) lvgl_tick();
   }
@@ -105,7 +119,9 @@ void setup() {
   ui_set_status("WiFi connected");
   lvgl_tick();
 
-  MDNS.begin("desk-display-device");
+  String hostname = device_hostname();
+  MDNS.begin(hostname.c_str());
+  Serial.printf("mDNS hostname: %s.local\n", hostname.c_str());
 
   ui_set_status("Syncing time...");
   lvgl_tick();
