@@ -1,0 +1,22 @@
+# Build outputs
+firmware/.pio/
+firmware/compile_commands.json
+helper/node_modules/
+helper/dist/
+
+# Local setup/runtime data
+firmware/data/helper.txt
+*.local
+.env
+.env.*
+
+# Editor and OS noise
+.vscode/
+.idea/
+*.swp
+*.tmp
+Thumbs.db
+Desktop.ini
+
+# Manual local backups
+backups/
