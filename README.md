@@ -17,7 +17,7 @@ Your display has already been flashed and assembled. You only need to connect it
 
 ### 1. Start the helper app
 
-On your laptop, open a terminal in the supplied `helper` folder and run:
+On your laptop, open a terminal in the supplied project folder and run:
 
 ```powershell
 cd ./helper
