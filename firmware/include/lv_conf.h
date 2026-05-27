@@ -146,11 +146,11 @@
  *====================*/
 #define LV_FONT_MONTSERRAT_8   0
 #define LV_FONT_MONTSERRAT_10  0
-#define LV_FONT_MONTSERRAT_12  1
+#define LV_FONT_MONTSERRAT_12  0
 #define LV_FONT_MONTSERRAT_14  0
-#define LV_FONT_MONTSERRAT_16  1
+#define LV_FONT_MONTSERRAT_16  0
 #define LV_FONT_MONTSERRAT_18  0
-#define LV_FONT_MONTSERRAT_20  1
+#define LV_FONT_MONTSERRAT_20  0
 #define LV_FONT_MONTSERRAT_22  0
 #define LV_FONT_MONTSERRAT_24  0
 #define LV_FONT_MONTSERRAT_26  0
@@ -166,9 +166,11 @@
 #define LV_FONT_MONTSERRAT_46  0
 #define LV_FONT_MONTSERRAT_48  0
 
-#define LV_FONT_DEFAULT  &lv_font_montserrat_16
+#define LV_FONT_CUSTOM_DECLARE LV_FONT_DECLARE(poppins_12) LV_FONT_DECLARE(poppins_16) LV_FONT_DECLARE(poppins_20) LV_FONT_DECLARE(lora_24)
+#define LV_FONT_DEFAULT  &poppins_16
 #define LV_FONT_UNSCII_8  0
 #define LV_FONT_UNSCII_16 0
+#define LV_USE_FONT_COMPRESSED 1
 
 /*====================
    TEXT

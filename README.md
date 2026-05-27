@@ -1,6 +1,6 @@
 # Claude Usage Desk Display Setup
 
-This display shows your Claude API monthly usage cost, GitHub service status, and basic device information.
+This display shows your Claude API monthly usage cost, optional OpenAI organization usage cost, GitHub service status, and basic device information.
 
 Your display has already been flashed and assembled. You only need to connect it to Wi-Fi and provision it with your Claude analytics details.
 
@@ -12,6 +12,7 @@ Your display has already been flashed and assembled. You only need to connect it
 - Node.js 20 or newer installed on your laptop.
 - Your Claude email address.
 - An Anthropic analytics API key with permission to read organization analytics.
+- Optional: an OpenAI Admin/API key with permission to read organization costs.
 
 ## Setup
 
@@ -35,6 +36,7 @@ Enter:
 
 - your Anthropic analytics API key
 - your Claude email address
+- optionally, your OpenAI organization key
 
 When setup succeeds, the helper will show a ready page:
 
@@ -97,6 +99,7 @@ The helper is only needed for first-time setup or if you reset the display later
 Press the button to switch screens:
 
 - Usage: your current monthly Claude usage.
+- OpenAI: current-month OpenAI organization API spend, if an OpenAI key was provided.
 - GitHub: current GitHub service status.
 - Info: Wi-Fi status, IP address, and configured Claude email.
 
@@ -111,7 +114,7 @@ To give the display to someone else, move it to a different Wi-Fi network, or re
 3. Connect to the `DeskDisplay-...` setup network shown on the display.
 4. Run the setup steps again.
 
-This clears the saved Wi-Fi, Claude email, API key, and user ID from the display.
+This clears the saved Wi-Fi, Claude email, API keys, and user ID from the display.
 
 ## Troubleshooting
 
@@ -171,10 +174,18 @@ Reset the display and run setup again if the email or key might be wrong.
 
 The GitHub screen turns orange when GitHub reports a degraded service or when the display cannot check GitHub status. The affected area or error should appear below the indicator.
 
+### The OpenAI screen says OpenAI not set
+
+The OpenAI key is optional. Reset the display and run setup again if you want to add one later.
+
+### The OpenAI screen shows an HTTP error
+
+Check that the OpenAI key can access the organization costs endpoint. The OpenAI screen uses the current-month `/v1/organization/costs` total.
+
 ## Privacy And Credentials
 
-During setup, the helper stores your API key in your laptop's secure keychain. The helper setup pages are only available from the laptop running the helper app.
+During setup, the helper stores API keys in your laptop's secure keychain. The helper setup pages are only available from the laptop running the helper app.
 
-The display stores the API key locally after provisioning so it can update without the helper running. Provisioning responses are encrypted with the one-time setup code, and the display's public HTTPS calls validate server certificates before sending the key.
+The display stores API keys locally after provisioning so it can update without the helper running. Provisioning responses are encrypted with the one-time setup code, and the display's public HTTPS calls validate server certificates before sending keys.
 
 Treat the display like a device containing a personal API credential. Hold the button for 3 seconds to reset it before giving it to someone else.

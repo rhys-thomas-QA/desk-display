@@ -95,6 +95,23 @@ static void refresh_info_screen() {
   ui_update_info(info);
 }
 
+static DisplayData display_data_from_status(const StatusData& status, const char* fallback) {
+  DisplayData dd = {};
+  dd.valid = status.valid;
+
+  if (status.valid) {
+    dd.percent  = status.percent;
+    dd.barColor = status.barColor;
+    strlcpy(dd.valueText,  status.valueText,  sizeof(dd.valueText));
+    strlcpy(dd.detailText, status.detailText, sizeof(dd.detailText));
+    strlcpy(dd.resetText,  status.resetText,  sizeof(dd.resetText));
+  } else {
+    strlcpy(dd.statusMsg, status.errorMsg[0] ? status.errorMsg : fallback, sizeof(dd.statusMsg));
+  }
+
+  return dd;
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.println("\n\nDesk Display booting...");
@@ -186,6 +203,7 @@ void loop() {
         DisplayData dd = {};
         strlcpy(dd.statusMsg, "NTP sync failed", sizeof(dd.statusMsg));
         ui_update(dd);
+        ui_update_openai(dd);
         s_firstPoll = true; // retry next iteration
         return;
       }
@@ -201,6 +219,7 @@ void loop() {
           strlcpy(dd.statusMsg, "Run helper app to provision", sizeof(dd.statusMsg));
         }
         ui_update(dd);
+        ui_update_openai(dd);
         s_lastPoll = millis() - (POLL_INTERVAL_MS - RETRY_INTERVAL_MS);
         return;
       }
@@ -218,21 +237,14 @@ void loop() {
       }
     }
 
-    DisplayData dd = {};
-    dd.valid = status.valid;
+    ui_update(display_data_from_status(status, "Fetch failed"));
 
-    if (status.valid) {
-      dd.percent  = status.percent;
-      dd.barColor = status.barColor;
-      strlcpy(dd.valueText,  status.valueText,  sizeof(dd.valueText));
-      strlcpy(dd.detailText, status.detailText, sizeof(dd.detailText));
-      strlcpy(dd.resetText,  status.resetText,  sizeof(dd.resetText));
-    } else {
-      strlcpy(dd.statusMsg, status.errorMsg[0] ? status.errorMsg : "Fetch failed", sizeof(dd.statusMsg));
+    StatusData openaiStatus = api_poll_openai();
+    ui_update_openai(display_data_from_status(openaiStatus, "OpenAI fetch failed"));
+
+    if (!status.valid) {
       s_lastPoll = millis() - (POLL_INTERVAL_MS - RETRY_INTERVAL_MS);
     }
-
-    ui_update(dd);
   }
 
   delay(LVGL_TICK_MS);

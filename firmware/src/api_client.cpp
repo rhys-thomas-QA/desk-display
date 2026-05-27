@@ -113,7 +113,7 @@ static bool decryptProvisioningPayload(const String& setupCode,
 
   uint8_t iv[12];
   uint8_t tag[16];
-  uint8_t ciphertext[768];
+  uint8_t ciphertext[1536];
   uint8_t plaintext[sizeof(ciphertext) + 1];
   size_t ivLen = 0;
   size_t tagLen = 0;
@@ -195,6 +195,7 @@ void api_reset_settings() {
   Serial.println("Clearing helper profile and legacy API credentials");
   if (prefs().isKey("email")) prefs().remove("email");
   if (prefs().isKey("api_key")) prefs().remove("api_key");
+  if (prefs().isKey("openai_key")) prefs().remove("openai_key");
   if (prefs().isKey("user_id")) prefs().remove("user_id");
 }
 
@@ -296,7 +297,7 @@ bool api_provision() {
     return false;
   }
 
-  DynamicJsonDocument envelope(1280);
+  DynamicJsonDocument envelope(2304);
   DeserializationError err = deserializeJson(envelope, http.getStream());
   http.end();
 
@@ -306,13 +307,14 @@ bool api_provision() {
     return false;
   }
 
-  DynamicJsonDocument doc(768);
+  DynamicJsonDocument doc(1536);
   if (!decryptProvisioningPayload(setupCode, envelope, doc)) {
     return false;
   }
 
   const char* email = doc["email"];
   const char* apiKey = doc["api_key"];
+  const char* openAiKey = doc["openai_api_key"];
   const char* userId = doc["user_id"];
   if (!email || !email[0]) {
     Serial.println("Provision: missing email");
@@ -327,6 +329,11 @@ bool api_provision() {
 
   prefs().putString("api_key", apiKey);
   prefs().putString("email", email);
+  if (openAiKey && openAiKey[0]) {
+    prefs().putString("openai_key", openAiKey);
+  } else if (prefs().isKey("openai_key")) {
+    prefs().remove("openai_key");
+  }
   if (userId && userId[0]) {
     prefs().putString("user_id", userId);
   } else if (prefs().isKey("user_id")) {
@@ -378,6 +385,8 @@ bool api_refresh_email() {
   return true;
 }
 
+static time_t epochFromUtc(int year, int month, int day, int hour, int minute, int second);
+
 static String billingStartISO() {
   time_t now = time(nullptr);
   struct tm t;
@@ -385,6 +394,13 @@ static String billingStartISO() {
   char buf[32];
   snprintf(buf, sizeof(buf), "%04d-%02d-01T00:00:00Z", t.tm_year + 1900, t.tm_mon + 1);
   return String(buf);
+}
+
+static uint32_t billingStartUnix() {
+  time_t now = time(nullptr);
+  struct tm t;
+  gmtime_r(&now, &t);
+  return (uint32_t)epochFromUtc(t.tm_year + 1900, t.tm_mon + 1, 1, 0, 0, 0);
 }
 
 static String nowISO() {
@@ -624,6 +640,13 @@ static int64_t amountAsMicroCents(JsonVariantConst value) {
   return negative ? -amount : amount;
 }
 
+static int64_t usdAsMicroCents(JsonVariantConst value) {
+  if (value.isNull()) return 0;
+  double usd = value.as<double>();
+  double microCents = usd * 100.0 * (double)MICROCENTS_PER_CENT;
+  return (int64_t)(microCents + (microCents >= 0 ? 0.5 : -0.5));
+}
+
 static void formatMoney(char* buf, size_t len, uint64_t cents) {
   unsigned long dollars = (unsigned long)(cents / 100ULL);
   unsigned centsPart = (unsigned)(cents % 100ULL);
@@ -744,5 +767,75 @@ StatusData api_poll() {
   applyUsageResult(result, totalMicroCents, 200, refreshedAt);
 
   Serial.printf("Cost: %s %s (%d%%)\n", result.valueText, result.detailText, result.percent);
+  return result;
+}
+
+StatusData api_poll_openai() {
+  StatusData result = {};
+
+  String apiKey = prefs().getString("openai_key", "");
+  if (apiKey.isEmpty()) {
+    strlcpy(result.errorMsg, "OpenAI not set", sizeof(result.errorMsg));
+    return result;
+  }
+
+  if (time(nullptr) < 1577836800UL) {
+    strlcpy(result.errorMsg, "Time not synced", sizeof(result.errorMsg));
+    return result;
+  }
+
+  String page;
+  int64_t totalMicroCents = 0;
+
+  for (int pageNum = 0; pageNum < 3; pageNum++) {
+    String url = String("https://api.openai.com/v1/organization/costs")
+      + "?start_time=" + String(billingStartUnix())
+      + "&limit=31";
+    if (!page.isEmpty()) url += "&page=" + page;
+    Serial.printf("Polling OpenAI costs: %s\n", url.c_str());
+
+    WiFiClientSecure wifiClient;
+    configureSecureClient(wifiClient);
+    HTTPClient http;
+    http.begin(wifiClient, url);
+    http.addHeader("Authorization", "Bearer " + apiKey);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("User-Agent", "DeskDisplay");
+    http.setTimeout(15000);
+
+    int code = http.GET();
+    result.httpStatus = code;
+    if (code != HTTP_CODE_OK) {
+      snprintf(result.errorMsg, sizeof(result.errorMsg), "OpenAI HTTP %d", code);
+      Serial.printf("OpenAI costs fetch failed: HTTP %d\n", code);
+      http.end();
+      return result;
+    }
+
+    DynamicJsonDocument doc(8192);
+    DeserializationError err = deserializeJson(doc, http.getStream());
+    http.end();
+
+    if (err) {
+      Serial.printf("OpenAI costs JSON error: %s\n", err.c_str());
+      strlcpy(result.errorMsg, "OpenAI JSON error", sizeof(result.errorMsg));
+      return result;
+    }
+
+    for (JsonObject bucket : doc["data"].as<JsonArray>()) {
+      for (JsonObject row : bucket["results"].as<JsonArray>()) {
+        totalMicroCents += usdAsMicroCents(row["amount"]["value"]);
+      }
+    }
+
+    const bool hasMore = doc["has_more"] | false;
+    const char* nextPage = doc["next_page"] | "";
+    if (!hasMore || !nextPage[0]) break;
+    page = nextPage;
+  }
+
+  applyUsageResult(result, totalMicroCents, 200, "");
+  formatCheckedAt(result.resetText, sizeof(result.resetText));
+  Serial.printf("OpenAI cost: %s %s (%d%%)\n", result.valueText, result.detailText, result.percent);
   return result;
 }

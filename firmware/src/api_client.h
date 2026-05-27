@@ -30,4 +30,5 @@ void       api_get_email(char* buf, size_t len);
 void       api_get_last_error(char* buf, size_t len);
 void       api_reset_settings();
 StatusData api_poll();
+StatusData api_poll_openai();
 GitHubStatusData api_poll_github_status();

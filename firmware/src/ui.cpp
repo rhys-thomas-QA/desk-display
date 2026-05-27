@@ -24,6 +24,15 @@ void ui_update(const DisplayData& d) {
   Serial.println("+-----------------------------+");
 }
 
+void ui_update_openai(const DisplayData& d) {
+  if (!d.valid) {
+    Serial.printf("[ui] openai error: %s\n", d.statusMsg);
+    return;
+  }
+
+  Serial.printf("[ui] openai: %s %s (%d%%)\n", d.valueText, d.detailText, d.percent);
+}
+
 void ui_update_github_status(const GitHubStatusData& d) {
   if (!d.valid) {
     Serial.printf("[ui] github error: %s\n", d.errorMsg);
@@ -56,6 +65,11 @@ void ui_next_screen() {
 
 #include <lvgl.h>
 
+LV_FONT_DECLARE(poppins_12);
+LV_FONT_DECLARE(poppins_16);
+LV_FONT_DECLARE(poppins_20);
+LV_FONT_DECLARE(lora_24);
+
 #define C_BG       0x050506
 #define C_CARD     0x202124
 #define C_TRACK    0x65476f
@@ -66,6 +80,11 @@ void ui_next_screen() {
 #define C_STATUS   0xffb485
 #define C_OK       0x50b93f
 
+#define FONT_SMALL  &poppins_12
+#define FONT_BODY   &poppins_16
+#define FONT_LARGE  &poppins_20
+#define FONT_TITLE  &lora_24
+
 static lv_obj_t* lbl_value;
 static lv_obj_t* lbl_detail;
 static lv_obj_t* lbl_reset;
@@ -74,6 +93,13 @@ static lv_obj_t* lbl_pct;
 static lv_obj_t* bar_usage;
 static lv_obj_t* spinner;
 static lv_obj_t* scr_usage;
+static lv_obj_t* lbl_openai_value;
+static lv_obj_t* lbl_openai_detail;
+static lv_obj_t* lbl_openai_reset;
+static lv_obj_t* lbl_openai_status;
+static lv_obj_t* lbl_openai_pct;
+static lv_obj_t* bar_openai;
+static lv_obj_t* scr_openai;
 static lv_obj_t* scr_github;
 static lv_obj_t* scr_info;
 static lv_obj_t* github_indicator;
@@ -166,7 +192,7 @@ struct MascotAnim {
   uint16_t blink_countdown;
 };
 
-constexpr uint8_t MAX_MASCOTS = 3;
+constexpr uint8_t MAX_MASCOTS = 4;
 static MascotAnim s_mascots[MAX_MASCOTS];
 static uint8_t s_mascot_count = 0;
 static lv_timer_t* s_mascot_timer = nullptr;
@@ -299,7 +325,7 @@ static lv_obj_t* make_pill_label(lv_obj_t* parent, const char* text, lv_coord_t 
   lv_obj_set_pos(pill, x, y);
   style_pill(pill);
 
-  lv_obj_t* lbl = make_label(pill, &lv_font_montserrat_16, C_TEXT, w);
+  lv_obj_t* lbl = make_label(pill, FONT_BODY, C_TEXT, w);
   lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_label_set_text(lbl, text);
   lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
@@ -330,7 +356,7 @@ static void build_usage_screen(lv_obj_t* scr) {
 
   create_claude_mascot(scr, 0, 2, 2);
 
-  lv_obj_t* lbl_title = make_label(scr, &lv_font_montserrat_20, C_TEXT, 120);
+  lv_obj_t* lbl_title = make_label(scr, FONT_TITLE, C_TEXT, 120);
   lv_obj_set_style_text_align(lbl_title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_label_set_text(lbl_title, "Usage");
   lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 0, 14);
@@ -341,13 +367,13 @@ static void build_usage_screen(lv_obj_t* scr) {
   style_panel(card, C_CARD, C_CARD, 5);
   lv_obj_set_style_pad_all(card, 0, LV_PART_MAIN);
 
-  lbl_pct = make_label(card, &lv_font_montserrat_20, C_TEXT, 82);
+  lbl_pct = make_label(card, FONT_LARGE, C_TEXT, 82);
   lv_label_set_text(lbl_pct, "--%");
   lv_obj_set_pos(lbl_pct, CONTENT_PAD, 4);
 
   make_pill_label(card, "Used", pill_x(), 10, PILL_W);
 
-  lbl_value = make_label(card, &lv_font_montserrat_16, C_TEXT, content_inner_w());
+  lbl_value = make_label(card, FONT_BODY, C_TEXT, content_inner_w());
   lv_label_set_text(lbl_value, "--");
   lv_obj_set_pos(lbl_value, CONTENT_PAD, 40);
 
@@ -356,15 +382,15 @@ static void build_usage_screen(lv_obj_t* scr) {
   lv_obj_set_pos(bar_usage, CONTENT_PAD, 66);
   style_bar(bar_usage, C_MASCOT);
 
-  lbl_reset = make_label(card, &lv_font_montserrat_16, C_TEXT, content_inner_w());
+  lbl_reset = make_label(card, FONT_BODY, C_TEXT, content_inner_w());
   lv_label_set_text(lbl_reset, "");
   lv_obj_set_pos(lbl_reset, CONTENT_PAD, 90);
 
-  lbl_detail = make_label(card, &lv_font_montserrat_12, C_MUTED, content_inner_w());
+  lbl_detail = make_label(card, FONT_SMALL, C_MUTED, content_inner_w());
   lv_label_set_text(lbl_detail, "");
   lv_obj_set_pos(lbl_detail, CONTENT_PAD, 116);
 
-  lbl_status = make_label(scr, &lv_font_montserrat_16, C_STATUS, content_w());
+  lbl_status = make_label(scr, FONT_BODY, C_STATUS, content_w());
   lv_obj_set_style_text_align(lbl_status, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_label_set_text(lbl_status, "");
   lv_obj_align(lbl_status, LV_ALIGN_BOTTOM_MID, 0, -12);
@@ -374,12 +400,57 @@ static void build_usage_screen(lv_obj_t* scr) {
   lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
 }
 
+static void build_openai_screen(lv_obj_t* scr) {
+  style_screen(scr);
+
+  create_claude_mascot(scr, 0, 2, 2);
+
+  lv_obj_t* lbl_title = make_label(scr, FONT_TITLE, C_TEXT, 150);
+  lv_obj_set_style_text_align(lbl_title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_label_set_text(lbl_title, "OpenAI");
+  lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 0, 14);
+
+  lv_obj_t* card = lv_obj_create(scr);
+  lv_obj_set_size(card, content_w(), 138);
+  lv_obj_align(card, LV_ALIGN_TOP_MID, 0, 62);
+  style_panel(card, C_CARD, C_CARD, 5);
+  lv_obj_set_style_pad_all(card, 0, LV_PART_MAIN);
+
+  lbl_openai_pct = make_label(card, FONT_LARGE, C_TEXT, 82);
+  lv_label_set_text(lbl_openai_pct, "--%");
+  lv_obj_set_pos(lbl_openai_pct, CONTENT_PAD, 4);
+
+  make_pill_label(card, "Used", pill_x(), 10, PILL_W);
+
+  lbl_openai_value = make_label(card, FONT_BODY, C_TEXT, content_inner_w());
+  lv_label_set_text(lbl_openai_value, "--");
+  lv_obj_set_pos(lbl_openai_value, CONTENT_PAD, 40);
+
+  bar_openai = lv_bar_create(card);
+  lv_obj_set_size(bar_openai, content_inner_w(), 18);
+  lv_obj_set_pos(bar_openai, CONTENT_PAD, 66);
+  style_bar(bar_openai, C_MASCOT);
+
+  lbl_openai_reset = make_label(card, FONT_BODY, C_TEXT, content_inner_w());
+  lv_label_set_text(lbl_openai_reset, "");
+  lv_obj_set_pos(lbl_openai_reset, CONTENT_PAD, 90);
+
+  lbl_openai_detail = make_label(card, FONT_SMALL, C_MUTED, content_inner_w());
+  lv_label_set_text(lbl_openai_detail, "");
+  lv_obj_set_pos(lbl_openai_detail, CONTENT_PAD, 116);
+
+  lbl_openai_status = make_label(scr, FONT_BODY, C_STATUS, content_w());
+  lv_obj_set_style_text_align(lbl_openai_status, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_label_set_text(lbl_openai_status, "");
+  lv_obj_align(lbl_openai_status, LV_ALIGN_BOTTOM_MID, 0, -12);
+}
+
 static void build_github_screen(lv_obj_t* scr) {
   style_screen(scr);
 
   create_claude_mascot(scr, 0, 2, 2);
 
-  lv_obj_t* lbl_title = make_label(scr, &lv_font_montserrat_20, C_TEXT, 140);
+  lv_obj_t* lbl_title = make_label(scr, FONT_TITLE, C_TEXT, 140);
   lv_obj_set_style_text_align(lbl_title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_label_set_text(lbl_title, "GitHub");
   lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 0, 14);
@@ -391,23 +462,23 @@ static void build_github_screen(lv_obj_t* scr) {
   lv_obj_set_style_border_width(github_indicator, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(github_indicator, 0, LV_PART_MAIN);
 
-  lbl_github_indicator = make_label(github_indicator, &lv_font_montserrat_20, C_TEXT, 58);
+  lbl_github_indicator = make_label(github_indicator, FONT_LARGE, C_TEXT, 58);
   lv_obj_set_style_text_align(lbl_github_indicator, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_label_set_text(lbl_github_indicator, "--");
   lv_obj_align(lbl_github_indicator, LV_ALIGN_CENTER, 0, 0);
 
-  lbl_github_summary = make_label(scr, &lv_font_montserrat_20, C_TEXT, content_w());
+  lbl_github_summary = make_label(scr, FONT_LARGE, C_TEXT, content_w());
   lv_obj_set_style_text_align(lbl_github_summary, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_label_set_text(lbl_github_summary, "Checking GitHub");
   lv_obj_align(lbl_github_summary, LV_ALIGN_TOP_MID, 0, 130);
 
-  lbl_github_affected = make_label(scr, &lv_font_montserrat_12, C_MUTED, content_w(), LV_LABEL_LONG_WRAP);
+  lbl_github_affected = make_label(scr, FONT_SMALL, C_MUTED, content_w(), LV_LABEL_LONG_WRAP);
   lv_obj_set_height(lbl_github_affected, 42);
   lv_obj_set_style_text_align(lbl_github_affected, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_label_set_text(lbl_github_affected, "Status will appear here");
   lv_obj_align(lbl_github_affected, LV_ALIGN_TOP_MID, 0, 164);
 
-  lbl_github_checked = make_label(scr, &lv_font_montserrat_12, C_MUTED, content_w());
+  lbl_github_checked = make_label(scr, FONT_SMALL, C_MUTED, content_w());
   lv_obj_set_style_text_align(lbl_github_checked, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_label_set_text(lbl_github_checked, "");
   lv_obj_align(lbl_github_checked, LV_ALIGN_BOTTOM_MID, 0, -8);
@@ -415,11 +486,11 @@ static void build_github_screen(lv_obj_t* scr) {
 
 static void make_info_row(lv_obj_t* parent, const char* label, lv_coord_t y,
                           lv_obj_t** value_out, lv_coord_t value_width) {
-  lv_obj_t* lbl = make_label(parent, &lv_font_montserrat_12, C_MUTED, value_width);
+  lv_obj_t* lbl = make_label(parent, FONT_SMALL, C_MUTED, value_width);
   lv_label_set_text(lbl, label);
   lv_obj_set_pos(lbl, 12, y);
 
-  lv_obj_t* value = make_label(parent, &lv_font_montserrat_16, C_TEXT, value_width);
+  lv_obj_t* value = make_label(parent, FONT_BODY, C_TEXT, value_width);
   lv_label_set_text(value, "--");
   lv_obj_set_pos(value, 12, y + 18);
   if (value_out) *value_out = value;
@@ -430,7 +501,7 @@ static void build_info_screen(lv_obj_t* scr) {
 
   create_claude_mascot(scr, 0, 2, 2);
 
-  lv_obj_t* lbl_title = make_label(scr, &lv_font_montserrat_20, C_TEXT, 140);
+  lv_obj_t* lbl_title = make_label(scr, FONT_TITLE, C_TEXT, 140);
   lv_obj_set_style_text_align(lbl_title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_label_set_text(lbl_title, "Info");
   lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 0, 14);
@@ -455,10 +526,12 @@ static void build_info_screen(lv_obj_t* scr) {
 
 void ui_init() {
   scr_usage = lv_obj_create(nullptr);
+  scr_openai = lv_obj_create(nullptr);
   scr_github = lv_obj_create(nullptr);
   scr_info = lv_obj_create(nullptr);
 
   build_usage_screen(scr_usage);
+  build_openai_screen(scr_openai);
   build_github_screen(scr_github);
   build_info_screen(scr_info);
 
@@ -495,6 +568,36 @@ void ui_update(const DisplayData& d) {
   lv_label_set_text(lbl_reset, d.resetText);
   lv_label_set_text(lbl_detail, "monthly budget used");
   lv_label_set_text(lbl_status, "");
+}
+
+void ui_update_openai(const DisplayData& d) {
+  if (!lbl_openai_pct || !bar_openai) return;
+
+  lv_label_set_text(lbl_openai_status, "");
+
+  if (!d.valid) {
+    lv_label_set_text(lbl_openai_pct, "--%");
+    lv_label_set_text(lbl_openai_value, "--");
+    lv_label_set_text(lbl_openai_reset, "");
+    lv_label_set_text(lbl_openai_detail, "");
+    lv_label_set_text(lbl_openai_status, d.statusMsg);
+    lv_bar_set_value(bar_openai, 0, LV_ANIM_OFF);
+    return;
+  }
+
+  lv_bar_set_value(bar_openai, d.percent, LV_ANIM_ON);
+  lv_obj_set_style_bg_color(bar_openai, lv_color_hex(C_MASCOT), LV_PART_INDICATOR);
+
+  char pctBuf[8];
+  snprintf(pctBuf, sizeof(pctBuf), "%u%%", (unsigned)d.percent);
+  lv_label_set_text(lbl_openai_pct, pctBuf);
+
+  char valueBuf[40];
+  snprintf(valueBuf, sizeof(valueBuf), "%s %s used", d.valueText, d.detailText);
+  lv_label_set_text(lbl_openai_value, valueBuf);
+
+  lv_label_set_text(lbl_openai_reset, d.resetText);
+  lv_label_set_text(lbl_openai_detail, "monthly OpenAI spend");
 }
 
 void ui_update_github_status(const GitHubStatusData& d) {
@@ -557,17 +660,19 @@ void ui_set_status(const char* msg) {
 
 void ui_next_screen() {
   const uint32_t now = millis();
-  if (!scr_usage || !scr_github || !scr_info || now - s_last_screen_change < SCREEN_CHANGE_GUARD_MS) {
+  if (!scr_usage || !scr_openai || !scr_github || !scr_info ||
+      now - s_last_screen_change < SCREEN_CHANGE_GUARD_MS) {
     Serial.println("Screen switch ignored");
     return;
   }
 
   s_last_screen_change = now;
-  s_screen_index = (s_screen_index + 1) % 3;
+  s_screen_index = (s_screen_index + 1) % 4;
 
   lv_obj_t* next = scr_usage;
-  if (s_screen_index == 1) next = scr_github;
-  if (s_screen_index == 2) next = scr_info;
+  if (s_screen_index == 1) next = scr_openai;
+  if (s_screen_index == 2) next = scr_github;
+  if (s_screen_index == 3) next = scr_info;
   Serial.printf("Switching to screen %u\n", s_screen_index);
   lv_scr_load_anim(next, LV_SCR_LOAD_ANIM_OVER_LEFT, SCREEN_ANIM_MS, 0, false);
 }

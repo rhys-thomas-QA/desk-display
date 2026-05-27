@@ -6,10 +6,12 @@ import { Bonjour } from 'bonjour-service';
 import keytar from 'keytar';
 import { getCachedUserId, getEmail, setCachedUserId, writeConfig } from './config.js';
 import { canReadEnterpriseAnalytics, getMonthlyUsage, resolveEnterpriseAnalyticsUserId } from './claude.js';
+import { canReadOpenAICosts } from './openai.js';
 
 const PORT = 3333;
 const KEYCHAIN_SERVICE = 'desk-display';
 const KEYCHAIN_ACCOUNT = 'anthropic-analytics-key';
+const OPENAI_KEYCHAIN_ACCOUNT = 'openai-organization-key';
 const MONTHLY_LIMIT_USD = 200;
 const SETUP_CODE_DIGITS = 10;
 const SETUP_CODE_TTL_MINUTES = 30;
@@ -27,6 +29,10 @@ let setupLockedUntil = 0;
 
 async function getApiKey(): Promise<string | null> {
   return keytar.getPassword(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
+}
+
+async function getOpenAIKey(): Promise<string | null> {
+  return keytar.getPassword(KEYCHAIN_SERVICE, OPENAI_KEYCHAIN_ACCOUNT);
 }
 
 async function isReady(): Promise<boolean> {
@@ -122,6 +128,10 @@ const SETUP_HTML = `<!DOCTYPE html>
 
       <label for="email">Your Claude Email Address</label>
       <input id="email" type="email" name="email" placeholder="you@company.com" required />
+
+      <label for="openAiKey">OpenAI Organization Key <span style="color:#484f58;">(optional)</span></label>
+      <input id="openAiKey" type="password" name="openAiKey" placeholder="sk-..." autocomplete="off" />
+      <p class="hint">Use an OpenAI Admin/API key that can read organization costs.</p>
 
       <button type="submit">Save &amp; Continue</button>
     </form>
@@ -416,7 +426,11 @@ async function main() {
 
   app.post('/setup', async (req, res) => {
     if (!requireLocalBrowser(req, res)) return;
-    const { apiKey, email } = req.body as { apiKey?: string; email?: string };
+    const { apiKey, email, openAiKey } = req.body as {
+      apiKey?: string;
+      email?: string;
+      openAiKey?: string;
+    };
 
     if (!apiKey?.trim() || !email?.trim()) {
       res.send(SETUP_HTML.replace('{{ERROR}}', '<div class="error">Both fields are required.</div>'));
@@ -437,7 +451,22 @@ async function main() {
         return;
       }
 
+      const trimmedOpenAiKey = openAiKey?.trim() ?? '';
+      if (trimmedOpenAiKey) {
+        try {
+          await canReadOpenAICosts(trimmedOpenAiKey);
+        } catch {
+          res.send(SETUP_HTML.replace('{{ERROR}}', '<div class="error">The OpenAI key could not read organization costs. Check that it has usage/costs access.</div>'));
+          return;
+        }
+      }
+
       await keytar.setPassword(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, apiKey.trim());
+      if (trimmedOpenAiKey) {
+        await keytar.setPassword(KEYCHAIN_SERVICE, OPENAI_KEYCHAIN_ACCOUNT, trimmedOpenAiKey);
+      } else {
+        await keytar.deletePassword(KEYCHAIN_SERVICE, OPENAI_KEYCHAIN_ACCOUNT);
+      }
       writeConfig({ email: email.trim() });
       setCachedUserId(email.trim(), userId);
       provisioned = false;
@@ -481,6 +510,7 @@ async function main() {
     }
 
     const apiKey = await getApiKey();
+    const openAiKey = await getOpenAIKey();
     const email = getEmail();
     if (!apiKey || !email) { res.status(503).json({ error: 'Not configured' }); return; }
 
@@ -501,7 +531,12 @@ async function main() {
       return;
     }
 
-    res.json(encryptProvisioningPayload({ api_key: apiKey, user_id: userId, email }));
+    res.json(encryptProvisioningPayload({
+      api_key: apiKey,
+      user_id: userId,
+      email,
+      openai_api_key: openAiKey || '',
+    }));
     provisioned = true;
   });
 
