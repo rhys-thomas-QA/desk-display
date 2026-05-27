@@ -110,7 +110,7 @@ void setup() {
   ui_set_status("Connecting WiFi...");
   lvgl_tick();
 
-  if (!wifi_connect(setup_portal_started)) {
+  if (!wifi_connect(setup_portal_started, !api_is_provisioned())) {
     ui_set_status("WiFi failed.\nReset to retry.");
     while (true) lvgl_tick();
   }

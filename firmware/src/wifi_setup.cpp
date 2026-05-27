@@ -7,6 +7,7 @@
 
 static Preferences prefs;
 static bool prefsOpen = false;
+static constexpr size_t SETUP_CODE_DIGITS = 10;
 static constexpr uint32_t SETUP_PORTAL_TIMEOUT_SECONDS = 15UL * 60UL;
 
 void wifi_init() {
@@ -70,7 +71,7 @@ static String configured_setup_code() {
   return prefs.isKey("setup_code") ? prefs.getString("setup_code") : "";
 }
 
-bool wifi_connect(WifiSetupPortalCallback onPortalStarted) {
+bool wifi_connect(WifiSetupPortalCallback onPortalStarted, bool requireSetupCode) {
   WiFiManager wm;
   String helperHost = configured_helper_host();
   String setupCode = configured_setup_code();
@@ -82,7 +83,7 @@ bool wifi_connect(WifiSetupPortalCallback onPortalStarted) {
     helperHost.c_str(), 64);
   WiFiManagerParameter setupCodeParam(
     "setup_code", "10-digit setup code from helper app",
-    setupCode.c_str(), 11,
+    setupCode.c_str(), SETUP_CODE_DIGITS + 1,
     "pattern='[0-9]{10}' minlength='10' maxlength='10' inputmode='numeric' "
     "title='Enter the 10-digit code shown on the helper ready page'");
 
@@ -99,12 +100,14 @@ bool wifi_connect(WifiSetupPortalCallback onPortalStarted) {
 
     String code = setupCodeParam.getValue();
     code.trim();
-    bool validCode = code.length() == 8;
-    for (int i = 0; validCode && i < 8; i++) validCode = isdigit(code[i]);
+    bool validCode = code.length() == SETUP_CODE_DIGITS;
+    for (size_t i = 0; validCode && i < SETUP_CODE_DIGITS; i++) validCode = isdigit(code[i]);
     if (validCode) {
       prefs.putString("setup_code", code);
+      Serial.println("Saved setup code");
     } else {
       prefs.remove("setup_code");
+      Serial.println("Setup code missing or invalid");
     }
   });
 
@@ -115,6 +118,11 @@ bool wifi_connect(WifiSetupPortalCallback onPortalStarted) {
 
   wm.setConfigPortalTimeout(SETUP_PORTAL_TIMEOUT_SECONDS);
   wm.setConnectTimeout(30);
+
+  if (requireSetupCode && setupCode.isEmpty()) {
+    Serial.println("Setup code required; starting setup portal");
+    return wm.startConfigPortal(apSsid.c_str(), apPassword.c_str());
+  }
 
   return wm.autoConnect(apSsid.c_str(), apPassword.c_str());
 }
