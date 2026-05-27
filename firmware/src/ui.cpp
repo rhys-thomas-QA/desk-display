@@ -385,13 +385,13 @@ static void build_github_screen(lv_obj_t* scr) {
   lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 0, 14);
 
   github_indicator = lv_obj_create(scr);
-  lv_obj_set_size(github_indicator, 86, 86);
-  lv_obj_align(github_indicator, LV_ALIGN_CENTER, 0, -24);
-  style_panel(github_indicator, C_CARD, C_CARD, 43);
+  lv_obj_set_size(github_indicator, 66, 66);
+  lv_obj_align(github_indicator, LV_ALIGN_TOP_MID, 0, 54);
+  style_panel(github_indicator, C_CARD, C_CARD, 33);
   lv_obj_set_style_border_width(github_indicator, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(github_indicator, 0, LV_PART_MAIN);
 
-  lbl_github_indicator = make_label(github_indicator, &lv_font_montserrat_20, C_TEXT, 70);
+  lbl_github_indicator = make_label(github_indicator, &lv_font_montserrat_20, C_TEXT, 58);
   lv_obj_set_style_text_align(lbl_github_indicator, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_label_set_text(lbl_github_indicator, "--");
   lv_obj_align(lbl_github_indicator, LV_ALIGN_CENTER, 0, 0);
@@ -399,17 +399,18 @@ static void build_github_screen(lv_obj_t* scr) {
   lbl_github_summary = make_label(scr, &lv_font_montserrat_20, C_TEXT, content_w());
   lv_obj_set_style_text_align(lbl_github_summary, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_label_set_text(lbl_github_summary, "Checking GitHub");
-  lv_obj_align(lbl_github_summary, LV_ALIGN_CENTER, 0, 42);
+  lv_obj_align(lbl_github_summary, LV_ALIGN_TOP_MID, 0, 130);
 
-  lbl_github_affected = make_label(scr, &lv_font_montserrat_16, C_MUTED, content_w(), LV_LABEL_LONG_WRAP);
+  lbl_github_affected = make_label(scr, &lv_font_montserrat_12, C_MUTED, content_w(), LV_LABEL_LONG_WRAP);
+  lv_obj_set_height(lbl_github_affected, 42);
   lv_obj_set_style_text_align(lbl_github_affected, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_label_set_text(lbl_github_affected, "Status will appear here");
-  lv_obj_align(lbl_github_affected, LV_ALIGN_CENTER, 0, 82);
+  lv_obj_align(lbl_github_affected, LV_ALIGN_TOP_MID, 0, 164);
 
   lbl_github_checked = make_label(scr, &lv_font_montserrat_12, C_MUTED, content_w());
   lv_obj_set_style_text_align(lbl_github_checked, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_label_set_text(lbl_github_checked, "");
-  lv_obj_align(lbl_github_checked, LV_ALIGN_BOTTOM_MID, 0, -14);
+  lv_obj_align(lbl_github_checked, LV_ALIGN_BOTTOM_MID, 0, -8);
 }
 
 static void make_info_row(lv_obj_t* parent, const char* label, lv_coord_t y,
