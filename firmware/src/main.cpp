@@ -38,9 +38,9 @@ static String device_hostname() {
 }
 
 static void setup_portal_started(const char* ssid, const char* password) {
-  char msg[96];
-  snprintf(msg, sizeof(msg), "Setup WiFi\n%s\nPass: %s", ssid, password);
-  ui_set_status(msg);
+  Serial.printf("Setup AP SSID: %s\n", ssid);
+  Serial.printf("Setup AP password: %s\n", password);
+  ui_show_setup_ap(ssid, password);
   lvgl_tick();
 }
 

@@ -23,5 +23,6 @@ void ui_init();
 void ui_update(const DisplayData& data);
 void ui_update_github_status(const GitHubStatusData& data);
 void ui_update_info(const InfoData& data);
+void ui_show_setup_ap(const char* ssid, const char* password);
 void ui_set_status(const char* msg);
 void ui_next_screen();

@@ -40,6 +40,10 @@ void ui_update_info(const InfoData& d) {
                 d.email);
 }
 
+void ui_show_setup_ap(const char* ssid, const char* password) {
+  Serial.printf("[ui] setup ap: ssid=%s password=%s\n", ssid, password);
+}
+
 void ui_set_status(const char* msg) {
   Serial.printf("[ui] status: %s\n", msg);
 }
@@ -528,6 +532,21 @@ void ui_update_info(const InfoData& d) {
   lv_label_set_text(lbl_info_wifi, d.wifiConnected ? "Connected" : "Offline");
   lv_label_set_text(lbl_info_ip, d.wifiConnected ? d.ipAddress : "Unavailable");
   lv_label_set_text(lbl_info_email, d.email[0] ? d.email : "Unavailable");
+}
+
+void ui_show_setup_ap(const char* ssid, const char* password) {
+  if (scr_usage && lv_scr_act() != scr_usage) {
+    s_screen_index = 0;
+    lv_scr_load(scr_usage);
+  }
+
+  lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
+  lv_label_set_text(lbl_pct, "Setup");
+  lv_label_set_text(lbl_value, ssid && ssid[0] ? ssid : "DeskDisplay");
+  lv_label_set_text(lbl_reset, password && password[0] ? password : "No password");
+  lv_label_set_text(lbl_detail, "setup WiFi password");
+  lv_label_set_text(lbl_status, "Open 192.168.4.1");
+  lv_bar_set_value(bar_usage, 0, LV_ANIM_OFF);
 }
 
 void ui_set_status(const char* msg) {
