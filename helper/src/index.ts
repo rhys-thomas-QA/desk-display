@@ -144,7 +144,7 @@ const READY_HTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Desk Display — Ready</title>
+  <title>Desk Display - Ready</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -237,26 +237,30 @@ const READY_HTML = `<!DOCTYPE html>
 <body>
   <div class="card">
     <h1>Ready to provision</h1>
-    <p class="subtitle">Your helper is ready to provision the display.</p>
+    <p class="subtitle">Your helper is ready. Keep this page open while the display copies its setup.</p>
 
     <div class="setup-code">{{SETUP_CODE}}</div>
-    <p class="subtitle">This code is valid for {{SETUP_CODE_TTL_MINUTES}} minutes and is accepted once.</p>
+    <p class="subtitle">This one-time code is valid for {{SETUP_CODE_TTL_MINUTES}} minutes.</p>
 
     <div class="step">
       <div class="step-num">1</div>
-      <div>Enter this setup code in the ESP32 setup portal.</div>
+      <div>Power the display and connect to the <code>DeskDisplay-...</code> Wi-Fi network using the password shown on the screen.</div>
     </div>
     <div class="step">
       <div class="step-num">2</div>
-      <div>Keep this page open until the display says provisioned or starts fetching.</div>
+      <div>Open <code>http://192.168.4.1</code>, choose the normal Wi-Fi network for the display, and enter that Wi-Fi password.</div>
     </div>
     <div class="step">
       <div class="step-num">3</div>
-      <div>The ESP32 will usually find this machine at <code>desk-display.local</code> and copy its setup.</div>
+      <div>Leave helper hostname as <code>desk-display.local</code>, enter the setup code above, then save.</div>
     </div>
     <div class="step">
       <div class="step-num">4</div>
-      <div>After provisioning, the display updates on its own and you can close the helper.</div>
+      <div>Reconnect this laptop to the normal Wi-Fi if needed and wait here until provisioning completes.</div>
+    </div>
+    <div class="step">
+      <div class="step-num">5</div>
+      <div>When provisioned, the display updates by itself and cycles through Usage, OpenAI, GitHub, and Info.</div>
     </div>
 
     {{NETWORK_URLS}}
@@ -278,7 +282,7 @@ const READY_HTML = `<!DOCTYPE html>
         const { provisioned } = await res.json();
         if (provisioned) {
           document.getElementById('status').innerHTML =
-            '<span class="success">Provisioned — you can close this window.</span>';
+            '<span class="success">Provisioned - you can close this window.</span>';
           return;
         }
       } catch {}
@@ -309,6 +313,10 @@ function localHelperUrls(): string[] {
   return [...urls];
 }
 
+function localHelperHosts(): string[] {
+  return localHelperUrls().map(url => new URL(url).hostname);
+}
+
 function normalizedRemoteAddress(req: Request): string {
   const address = req.socket.remoteAddress ?? '';
   return address.startsWith('::ffff:') ? address.slice(7) : address;
@@ -331,11 +339,11 @@ function requireLocalBrowser(req: Request, res: Response): boolean {
 }
 
 function readyHtml(): string {
-  const urls = localHelperUrls();
-  const fallback = urls.length
+  const hosts = localHelperHosts();
+  const fallback = hosts.length
     ? `<div class="step">
         <div class="step-num">?</div>
-        <div>If discovery fails, enter one of these helper addresses in the ESP setup portal: ${urls.map(url => `<code>${url}</code>`).join(' ')}</div>
+        <div>If discovery fails, enter one of these IP addresses as the helper hostname in the setup portal: ${hosts.map(host => `<code>${host}</code>`).join(' ')}</div>
       </div>`
     : '';
   return READY_HTML
@@ -570,11 +578,13 @@ async function main() {
     console.log(`\nDesk Display Helper running on :${PORT}`);
     console.log(`  Setup code: ${SETUP_CODE}`);
 
+    console.log(`  Open setup page: http://localhost:${PORT}/setup`);
+
     if (await isReady()) {
-      console.log(`  Ready to provision: http://localhost:${PORT}/ready`);
+      console.log(`  Existing setup is ready; continue from the browser after opening /setup.`);
       startMdns();
     } else {
-      console.log(`  Setup required: http://localhost:${PORT}/setup`);
+      console.log('  Setup required before provisioning.');
     }
   });
 }
