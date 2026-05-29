@@ -252,7 +252,7 @@ static bool resolveHelper(IPAddress& ip) {
     }
     if ((uint32_t)ip == 0) {
       Serial.printf("Cannot resolve helper: %s\n", host.c_str());
-      strlcpy(s_lastError, "Helper not found", sizeof(s_lastError));
+      strlcpy(s_lastError, "Helper not found. Re-run setup", sizeof(s_lastError));
       return false;
     }
   }
@@ -267,7 +267,7 @@ bool api_provision() {
   String setupCode = wifi_get_setup_code();
   setupCode.trim();
   if (setupCode.isEmpty()) {
-    strlcpy(s_lastError, "Enter setup code", sizeof(s_lastError));
+    strlcpy(s_lastError, "Enter one-time setup code", sizeof(s_lastError));
     Serial.println("Provision skipped: missing setup code");
     return false;
   }
@@ -283,17 +283,17 @@ bool api_provision() {
   if (code != HTTP_CODE_OK) {
     Serial.printf("Provision HTTP %d\n", code);
     if (code <= 0) {
-      strlcpy(s_lastError, "Helper unreachable", sizeof(s_lastError));
+      strlcpy(s_lastError, "Helper unreachable. Re-run setup", sizeof(s_lastError));
     } else if (code == 403) {
-      strlcpy(s_lastError, "Check setup code", sizeof(s_lastError));
+      strlcpy(s_lastError, "Check one-time setup code", sizeof(s_lastError));
     } else if (code == 409) {
-      strlcpy(s_lastError, "Restart helper app", sizeof(s_lastError));
+      strlcpy(s_lastError, "Code already used. Re-run setup", sizeof(s_lastError));
     } else if (code == 410) {
-      strlcpy(s_lastError, "Helper code expired", sizeof(s_lastError));
+      strlcpy(s_lastError, "Code expired. Re-run setup", sizeof(s_lastError));
     } else if (code == 429) {
       strlcpy(s_lastError, "Try setup later", sizeof(s_lastError));
     } else if (code == 503) {
-      strlcpy(s_lastError, "Setup helper key", sizeof(s_lastError));
+      strlcpy(s_lastError, "Finish helper setup page", sizeof(s_lastError));
     } else {
       snprintf(s_lastError, sizeof(s_lastError), "Provision HTTP %d", code);
     }

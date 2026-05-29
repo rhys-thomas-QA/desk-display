@@ -18,6 +18,7 @@
 #define WIFI_HEALTH_INTERVAL_MS  (10UL * 1000UL)
 #define WIFI_HEALTH_DROP_THRESHOLD 3
 #define LVGL_TICK_MS      2
+#define RESET_CONFIRM_SHOW_MS 650
 #define LOCAL_TIMEZONE    "GMT0BST,M3.5.0/1,M10.5.0/2"
 
 static uint32_t s_lastPoll  = 0;
@@ -29,6 +30,8 @@ static bool     s_firstGitHubPoll = true;
 static bool     s_firstInfoUpdate = true;
 static bool     s_navReady  = false;
 static bool     s_factoryResetting = false;
+static bool     s_resetConfirmVisible = false;
+static bool     s_resetConfirmWasShown = false;
 static bool     s_wifiHealthReady = false;
 static bool     s_wifiHealthWarning = false;
 static uint8_t  s_wifiDropCount = 0;
@@ -53,8 +56,11 @@ static void setup_portal_started(const char* ssid, const char* password) {
 static void factory_reset() {
   if (s_factoryResetting) return;
   s_factoryResetting = true;
+  s_resetConfirmVisible = false;
+  s_resetConfirmWasShown = false;
 
   Serial.println("Long press detected: resetting setup");
+  ui_set_reset_confirmation(false, 0);
   ui_set_status("Resetting setup...");
   lvgl_tick();
 
@@ -65,6 +71,36 @@ static void factory_reset() {
   lvgl_tick();
   delay(800);
   ESP.restart();
+}
+
+static void update_reset_confirmation() {
+  if (!s_navReady || s_factoryResetting) return;
+
+  const bool pressed = nav_button_is_pressed();
+  const uint32_t heldMs = nav_button_press_elapsed_ms();
+
+  if (pressed && heldMs >= RESET_CONFIRM_SHOW_MS) {
+    const uint32_t longPressMs = nav_button_long_press_ms();
+    const uint32_t progressWindow = longPressMs > RESET_CONFIRM_SHOW_MS
+      ? longPressMs - RESET_CONFIRM_SHOW_MS
+      : longPressMs;
+    const uint32_t progressMs = heldMs - RESET_CONFIRM_SHOW_MS;
+    uint32_t rawPercent = progressWindow > 0
+      ? (progressMs * 100UL) / progressWindow
+      : 100;
+    if (rawPercent > 100) rawPercent = 100;
+    uint8_t percent = (uint8_t)rawPercent;
+
+    ui_set_reset_confirmation(true, percent);
+    s_resetConfirmVisible = true;
+    s_resetConfirmWasShown = true;
+    return;
+  }
+
+  if (s_resetConfirmVisible) {
+    ui_set_reset_confirmation(false, 0);
+    s_resetConfirmVisible = false;
+  }
 }
 
 static void lvgl_tick() {
@@ -78,10 +114,20 @@ static void lvgl_tick() {
   lv_timer_handler();
 #endif
   if (s_navReady) {
+    update_reset_confirmation();
     if (nav_button_was_long_pressed()) {
       factory_reset();
     } else if (nav_button_was_pressed()) {
-      ui_next_screen();
+      const bool suppressShortPress = s_resetConfirmWasShown;
+      s_resetConfirmWasShown = false;
+      ui_set_reset_confirmation(false, 0);
+      s_resetConfirmVisible = false;
+
+      if (suppressShortPress) {
+        Serial.println("Reset hold cancelled");
+      } else {
+        ui_next_screen();
+      }
     }
   }
 }
@@ -89,6 +135,7 @@ static void lvgl_tick() {
 static void refresh_info_screen() {
   InfoData info = {};
   info.wifiConnected = WiFi.status() == WL_CONNECTED;
+  info.rssi = info.wifiConnected ? WiFi.RSSI() : 0;
 
   if (info.wifiConnected) {
     String ip = WiFi.localIP().toString();

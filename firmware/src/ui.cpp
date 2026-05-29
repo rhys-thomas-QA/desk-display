@@ -44,8 +44,9 @@ void ui_update_github_status(const GitHubStatusData& d) {
 }
 
 void ui_update_info(const InfoData& d) {
-  Serial.printf("[ui] info: wifi=%s ip=%s email=%s\n",
+  Serial.printf("[ui] info: wifi=%s rssi=%d ip=%s email=%s\n",
                 d.wifiConnected ? "connected" : "offline",
+                d.rssi,
                 d.ipAddress,
                 d.email);
 }
@@ -56,6 +57,14 @@ void ui_show_setup_ap(const char* ssid, const char* password) {
 
 void ui_set_openai_enabled(bool enabled) {
   Serial.printf("[ui] openai screen: %s\n", enabled ? "enabled" : "disabled");
+}
+
+void ui_set_wifi_signal(bool connected, int rssi) {
+  Serial.printf("[ui] wifi signal: %s %d\n", connected ? "connected" : "offline", rssi);
+}
+
+void ui_set_reset_confirmation(bool active, uint8_t percent) {
+  if (active) Serial.printf("[ui] reset hold: %u%%\n", (unsigned)percent);
 }
 
 void ui_set_status(const char* msg) {
@@ -98,6 +107,8 @@ static lv_obj_t* lbl_status;
 static lv_obj_t* lbl_pct;
 static lv_obj_t* bar_usage;
 static lv_obj_t* spinner;
+static lv_obj_t* scr_splash;
+static lv_obj_t* scr_reset;
 static lv_obj_t* scr_usage;
 static lv_obj_t* lbl_openai_value;
 static lv_obj_t* lbl_openai_detail;
@@ -118,10 +129,18 @@ static lv_obj_t* info_wifi_dot;
 static lv_obj_t* lbl_info_wifi;
 static lv_obj_t* lbl_info_ip;
 static lv_obj_t* lbl_info_email;
+static lv_obj_t* reset_bar;
+static lv_obj_t* lbl_reset_confirm_detail;
+static lv_obj_t* wifi_bars[4][3];
+static lv_obj_t* screen_dots[4][4];
+static lv_timer_t* s_splash_timer = nullptr;
 static uint8_t   s_screen_index = 0;
 static bool      s_openai_enabled = false;
+static bool      s_splash_active = false;
+static bool      s_reset_confirm_active = false;
 static uint32_t  s_last_screen_change = 0;
 
+constexpr uint32_t SPLASH_MS = 5000;
 constexpr uint32_t SCREEN_ANIM_MS = 180;
 constexpr uint32_t SCREEN_CHANGE_GUARD_MS = 260;
 constexpr lv_coord_t CONTENT_PAD = 12;
@@ -201,7 +220,7 @@ struct MascotAnim {
   uint16_t blink_countdown;
 };
 
-constexpr uint8_t MAX_MASCOTS = 4;
+constexpr uint8_t MAX_MASCOTS = 5;
 static MascotAnim s_mascots[MAX_MASCOTS];
 static uint8_t s_mascot_count = 0;
 static lv_timer_t* s_mascot_timer = nullptr;
@@ -360,8 +379,146 @@ static void style_screen(lv_obj_t* scr) {
   lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
 }
 
+static void add_wifi_indicator(lv_obj_t* scr, uint8_t screen_index) {
+  const lv_coord_t x = lv_disp_get_hor_res(nullptr) - 28;
+  const lv_coord_t y = 15;
+  for (uint8_t i = 0; i < 3; i++) {
+    lv_coord_t h = 5 + (i * 4);
+    wifi_bars[screen_index][i] = make_rect(scr, x + (i * 7), y + (13 - h),
+                                           5, h, C_CARD, 1);
+    lv_obj_set_style_bg_opa(wifi_bars[screen_index][i], LV_OPA_60, LV_PART_MAIN);
+  }
+}
+
+static uint8_t wifi_level_from_rssi(bool connected, int rssi) {
+  if (!connected) return 0;
+  if (rssi >= -60) return 3;
+  if (rssi >= -72) return 2;
+  return 1;
+}
+
+static uint8_t visible_screen_count() {
+  return s_openai_enabled ? 4 : 3;
+}
+
+static int visible_dot_index(uint8_t screen_index) {
+  if (screen_index == 0) return 0;
+  if (screen_index == 1) return s_openai_enabled ? 1 : -1;
+  if (screen_index == 2) return s_openai_enabled ? 2 : 1;
+  if (screen_index == 3) return s_openai_enabled ? 3 : 2;
+  return 0;
+}
+
+static void add_screen_dots(lv_obj_t* scr, uint8_t screen_index) {
+  for (uint8_t i = 0; i < 4; i++) {
+    screen_dots[screen_index][i] = make_rect(scr, 0, 0, 6, 6, C_CARD, 3);
+    lv_obj_set_style_bg_opa(screen_dots[screen_index][i], LV_OPA_70, LV_PART_MAIN);
+  }
+}
+
+static void update_screen_dots() {
+  const uint8_t count = visible_screen_count();
+  const int active = visible_dot_index(s_screen_index);
+  const lv_coord_t dot = 6;
+  const lv_coord_t gap = 7;
+  const lv_coord_t total_w = count * dot + (count - 1) * gap;
+  const lv_coord_t x0 = (lv_disp_get_hor_res(nullptr) - total_w) / 2;
+  const lv_coord_t y = lv_disp_get_ver_res(nullptr) - 11;
+
+  for (uint8_t screen = 0; screen < 4; screen++) {
+    for (uint8_t i = 0; i < 4; i++) {
+      lv_obj_t* d = screen_dots[screen][i];
+      if (!d) continue;
+
+      if (i >= count) {
+        lv_obj_add_flag(d, LV_OBJ_FLAG_HIDDEN);
+        continue;
+      }
+
+      lv_obj_clear_flag(d, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_set_pos(d, x0 + i * (dot + gap), y);
+      lv_obj_set_style_bg_color(d,
+                                lv_color_hex(i == active ? C_MASCOT : C_CARD),
+                                LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(d, i == active ? LV_OPA_COVER : LV_OPA_70, LV_PART_MAIN);
+    }
+  }
+}
+
+static void splash_timeout_cb(lv_timer_t* timer) {
+  if (timer == s_splash_timer) s_splash_timer = nullptr;
+  if (!s_splash_active || !scr_usage) return;
+
+  s_splash_active = false;
+  s_last_screen_change = millis();
+  lv_scr_load_anim(scr_usage, LV_SCR_LOAD_ANIM_FADE_ON, 320, 0, false);
+}
+
+static void finish_splash_now(bool animate) {
+  if (!s_splash_active) return;
+
+  if (s_splash_timer) {
+    lv_timer_del(s_splash_timer);
+    s_splash_timer = nullptr;
+  }
+
+  s_splash_active = false;
+  s_last_screen_change = millis();
+  if (animate) {
+    lv_scr_load_anim(scr_usage, LV_SCR_LOAD_ANIM_FADE_ON, 220, 0, false);
+  } else {
+    lv_scr_load(scr_usage);
+  }
+}
+
+static void build_splash_screen(lv_obj_t* scr) {
+  style_screen(scr);
+
+  const lv_coord_t mascot_size = 3;
+  const lv_coord_t mascot_w = MASCOT_COLS * mascot_size;
+  const lv_coord_t mascot_x = (lv_disp_get_hor_res(nullptr) - mascot_w) / 2;
+  create_claude_mascot(scr, mascot_x, 40, mascot_size);
+
+  lv_obj_t* lbl_title = make_label(scr, FONT_TITLE, C_TEXT, content_w());
+  lv_obj_set_style_text_align(lbl_title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_label_set_text(lbl_title, "Desk Display");
+  lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 0, 142);
+
+  lv_obj_t* lbl_subtitle = make_label(scr, FONT_SMALL, C_MUTED, content_w());
+  lv_obj_set_style_text_align(lbl_subtitle, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_label_set_text(lbl_subtitle, "Starting up");
+  lv_obj_align(lbl_subtitle, LV_ALIGN_TOP_MID, 0, 176);
+}
+
+static void build_reset_screen(lv_obj_t* scr) {
+  style_screen(scr);
+
+  lv_obj_t* lbl_title = make_label(scr, FONT_TITLE, C_TEXT, content_w());
+  lv_obj_set_style_text_align(lbl_title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_label_set_text(lbl_title, "Reset setup?");
+  lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 0, 42);
+
+  lv_obj_t* lbl_body = make_label(scr, FONT_BODY, C_TEXT, content_w(), LV_LABEL_LONG_WRAP);
+  lv_obj_set_height(lbl_body, 54);
+  lv_obj_set_style_text_align(lbl_body, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_label_set_text(lbl_body, "Keep holding to clear WiFi, email, and API keys.");
+  lv_obj_align(lbl_body, LV_ALIGN_TOP_MID, 0, 84);
+
+  reset_bar = lv_bar_create(scr);
+  lv_obj_set_size(reset_bar, content_w(), 16);
+  lv_obj_align(reset_bar, LV_ALIGN_TOP_MID, 0, 150);
+  style_bar(reset_bar, C_STATUS);
+
+  lbl_reset_confirm_detail = make_label(scr, FONT_SMALL, C_MUTED, content_w());
+  lv_obj_set_style_text_align(lbl_reset_confirm_detail, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_label_set_text(lbl_reset_confirm_detail, "Release to cancel");
+  lv_obj_align(lbl_reset_confirm_detail, LV_ALIGN_TOP_MID, 0, 178);
+}
+
 static void build_usage_screen(lv_obj_t* scr) {
   style_screen(scr);
+  add_wifi_indicator(scr, 0);
+  add_screen_dots(scr, 0);
 
   create_claude_mascot(scr, 0, 2, 2);
 
@@ -406,8 +563,10 @@ static void build_usage_screen(lv_obj_t* scr) {
 
   lbl_status = make_label(scr, FONT_BODY, C_STATUS, content_w());
   lv_obj_set_style_text_align(lbl_status, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_label_set_long_mode(lbl_status, LV_LABEL_LONG_WRAP);
+  lv_obj_set_height(lbl_status, 38);
   lv_label_set_text(lbl_status, "");
-  lv_obj_align(lbl_status, LV_ALIGN_BOTTOM_MID, 0, -12);
+  lv_obj_align(lbl_status, LV_ALIGN_BOTTOM_MID, 0, -20);
 
   spinner = make_rect(scr, 0, 0, 14, 14, C_STATUS, 7);
   lv_obj_align(spinner, LV_ALIGN_BOTTOM_RIGHT, -14, -14);
@@ -416,6 +575,8 @@ static void build_usage_screen(lv_obj_t* scr) {
 
 static void build_openai_screen(lv_obj_t* scr) {
   style_screen(scr);
+  add_wifi_indicator(scr, 1);
+  add_screen_dots(scr, 1);
 
   create_claude_mascot(scr, 0, 2, 2);
 
@@ -460,12 +621,16 @@ static void build_openai_screen(lv_obj_t* scr) {
 
   lbl_openai_status = make_label(scr, FONT_BODY, C_STATUS, content_w());
   lv_obj_set_style_text_align(lbl_openai_status, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+  lv_label_set_long_mode(lbl_openai_status, LV_LABEL_LONG_WRAP);
+  lv_obj_set_height(lbl_openai_status, 38);
   lv_label_set_text(lbl_openai_status, "");
-  lv_obj_align(lbl_openai_status, LV_ALIGN_BOTTOM_MID, 0, -12);
+  lv_obj_align(lbl_openai_status, LV_ALIGN_BOTTOM_MID, 0, -20);
 }
 
 static void build_github_screen(lv_obj_t* scr) {
   style_screen(scr);
+  add_wifi_indicator(scr, 2);
+  add_screen_dots(scr, 2);
 
   create_claude_mascot(scr, 0, 2, 2);
 
@@ -500,7 +665,7 @@ static void build_github_screen(lv_obj_t* scr) {
   lbl_github_checked = make_label(scr, FONT_SMALL, C_MUTED, content_w());
   lv_obj_set_style_text_align(lbl_github_checked, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_label_set_text(lbl_github_checked, "");
-  lv_obj_align(lbl_github_checked, LV_ALIGN_BOTTOM_MID, 0, -8);
+  lv_obj_align(lbl_github_checked, LV_ALIGN_BOTTOM_MID, 0, -24);
 }
 
 static void make_info_row(lv_obj_t* parent, const char* label, lv_coord_t y,
@@ -517,6 +682,8 @@ static void make_info_row(lv_obj_t* parent, const char* label, lv_coord_t y,
 
 static void build_info_screen(lv_obj_t* scr) {
   style_screen(scr);
+  add_wifi_indicator(scr, 3);
+  add_screen_dots(scr, 3);
 
   create_claude_mascot(scr, 0, 2, 2);
 
@@ -544,11 +711,15 @@ static void build_info_screen(lv_obj_t* scr) {
 }
 
 void ui_init() {
+  scr_splash = lv_obj_create(nullptr);
+  scr_reset = lv_obj_create(nullptr);
   scr_usage = lv_obj_create(nullptr);
   scr_openai = lv_obj_create(nullptr);
   scr_github = lv_obj_create(nullptr);
   scr_info = lv_obj_create(nullptr);
 
+  build_splash_screen(scr_splash);
+  build_reset_screen(scr_reset);
   build_usage_screen(scr_usage);
   build_openai_screen(scr_openai);
   build_github_screen(scr_github);
@@ -556,7 +727,12 @@ void ui_init() {
 
   s_screen_index = 0;
   s_last_screen_change = millis();
-  lv_scr_load(scr_usage);
+  update_screen_dots();
+  s_splash_active = true;
+  s_splash_timer = lv_timer_create(splash_timeout_cb, SPLASH_MS, nullptr);
+  lv_timer_set_repeat_count(s_splash_timer, 1);
+  lv_scr_load(scr_splash);
+  Serial.println("Startup splash active");
 }
 
 static lv_obj_t* screen_for_index(uint8_t index) {
@@ -572,7 +748,47 @@ void ui_set_openai_enabled(bool enabled) {
     s_screen_index = 0;
     lv_scr_load(scr_usage);
   }
+  update_screen_dots();
   Serial.printf("OpenAI screen %s\n", enabled ? "enabled" : "disabled");
+}
+
+void ui_set_wifi_signal(bool connected, int rssi) {
+  const uint8_t level = wifi_level_from_rssi(connected, rssi);
+  for (uint8_t screen = 0; screen < 4; screen++) {
+    for (uint8_t i = 0; i < 3; i++) {
+      lv_obj_t* bar = wifi_bars[screen][i];
+      if (!bar) continue;
+      const bool active = connected && i < level;
+      lv_obj_set_style_bg_color(bar,
+                                lv_color_hex(active ? C_OK : C_CARD),
+                                LV_PART_MAIN);
+      lv_obj_set_style_bg_opa(bar, active ? LV_OPA_COVER : LV_OPA_60, LV_PART_MAIN);
+    }
+  }
+}
+
+void ui_set_reset_confirmation(bool active, uint8_t percent) {
+  if (!scr_reset || !reset_bar) return;
+
+  if (!active) {
+    lv_bar_set_value(reset_bar, 0, LV_ANIM_OFF);
+    lv_label_set_text(lbl_reset_confirm_detail, "Release to cancel");
+    if (s_reset_confirm_active) {
+      s_reset_confirm_active = false;
+      lv_obj_t* target = s_splash_active ? scr_splash : screen_for_index(s_screen_index);
+      lv_scr_load(target);
+    }
+    return;
+  }
+
+  if (percent > 100) percent = 100;
+  if (!s_reset_confirm_active && lv_scr_act() != scr_reset) {
+    s_reset_confirm_active = true;
+    lv_scr_load(scr_reset);
+  }
+  lv_bar_set_value(reset_bar, percent, LV_ANIM_OFF);
+  lv_label_set_text(lbl_reset_confirm_detail,
+                    percent >= 100 ? "Resetting..." : "Release to cancel");
 }
 
 void ui_update(const DisplayData& d) {
@@ -669,15 +885,26 @@ void ui_update_github_status(const GitHubStatusData& d) {
 void ui_update_info(const InfoData& d) {
   if (!lbl_info_wifi || !lbl_info_ip || !lbl_info_email) return;
 
+  ui_set_wifi_signal(d.wifiConnected, d.rssi);
+
   lv_obj_set_style_bg_color(info_wifi_dot,
                             lv_color_hex(d.wifiConnected ? C_OK : C_STATUS),
                             LV_PART_MAIN);
-  lv_label_set_text(lbl_info_wifi, d.wifiConnected ? "Connected" : "Offline");
+  char wifiText[28];
+  if (d.wifiConnected) {
+    const char* quality = d.rssi >= -60 ? "Strong" : (d.rssi >= -72 ? "Good" : "Weak");
+    snprintf(wifiText, sizeof(wifiText), "%s %d dBm", quality, d.rssi);
+  } else {
+    strlcpy(wifiText, "Offline", sizeof(wifiText));
+  }
+  lv_label_set_text(lbl_info_wifi, wifiText);
   lv_label_set_text(lbl_info_ip, d.wifiConnected ? d.ipAddress : "Unavailable");
   lv_label_set_text(lbl_info_email, d.email[0] ? d.email : "Unavailable");
 }
 
 void ui_show_setup_ap(const char* ssid, const char* password) {
+  finish_splash_now(false);
+
   if (scr_usage && lv_scr_act() != scr_usage) {
     s_screen_index = 0;
     lv_scr_load(scr_usage);
@@ -685,11 +912,15 @@ void ui_show_setup_ap(const char* ssid, const char* password) {
 
   lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
   lv_label_set_text(lbl_pct, "Setup");
-  lv_label_set_text(lbl_value, ssid && ssid[0] ? ssid : "DeskDisplay");
-  lv_label_set_text(lbl_reset, password && password[0] ? password : "No password");
-  lv_label_set_text(lbl_detail, "setup WiFi password");
-  lv_label_set_text(lbl_usage_reset_hint, "");
-  lv_label_set_text(lbl_status, "Open 192.168.4.1");
+  lv_label_set_text(lbl_value, ssid && ssid[0] ? ssid : "DeskDisplay setup WiFi");
+
+  char passText[32];
+  snprintf(passText, sizeof(passText), "Pass: %s",
+           password && password[0] ? password : "none");
+  lv_label_set_text(lbl_reset, passText);
+  lv_label_set_text(lbl_detail, "one-time code");
+  lv_label_set_text(lbl_usage_reset_hint, "192.168.4.1");
+  lv_label_set_text(lbl_status, "Join setup WiFi, then open 192.168.4.1");
   lv_bar_set_value(bar_usage, 0, LV_ANIM_OFF);
 }
 
@@ -706,6 +937,11 @@ void ui_set_status(const char* msg) {
 
 void ui_next_screen() {
   const uint32_t now = millis();
+  if (s_splash_active) {
+    finish_splash_now(true);
+    return;
+  }
+
   if (!scr_usage || !scr_openai || !scr_github || !scr_info ||
       now - s_last_screen_change < SCREEN_CHANGE_GUARD_MS) {
     Serial.println("Screen switch ignored");
@@ -718,6 +954,7 @@ void ui_next_screen() {
   } while (s_screen_index == 1 && !s_openai_enabled);
 
   lv_obj_t* next = screen_for_index(s_screen_index);
+  update_screen_dots();
   Serial.printf("Switching to screen %u\n", s_screen_index);
   lv_scr_load_anim(next, LV_SCR_LOAD_ANIM_OVER_LEFT, SCREEN_ANIM_MS, 0, false);
 }

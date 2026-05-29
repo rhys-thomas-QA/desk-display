@@ -16,6 +16,7 @@ struct GitHubStatusData;
 
 struct InfoData {
   bool wifiConnected;
+  int  rssi;
   char ipAddress[16];
   char email[64];
 };
@@ -27,5 +28,7 @@ void ui_update_github_status(const GitHubStatusData& data);
 void ui_update_info(const InfoData& data);
 void ui_show_setup_ap(const char* ssid, const char* password);
 void ui_set_openai_enabled(bool enabled);
+void ui_set_wifi_signal(bool connected, int rssi);
+void ui_set_reset_confirmation(bool active, uint8_t percent);
 void ui_set_status(const char* msg);
 void ui_next_screen();

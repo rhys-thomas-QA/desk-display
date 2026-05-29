@@ -79,10 +79,10 @@ bool wifi_connect(WifiSetupPortalCallback onPortalStarted, bool requireSetupCode
   String apPassword = configured_setup_ap_password();
 
   WiFiManagerParameter helperParam(
-    "helper", "Helper app hostname (e.g. desk-display.local)",
+    "helper", "Helper hostname (leave as desk-display.local)",
     helperHost.c_str(), 64);
   WiFiManagerParameter setupCodeParam(
-    "setup_code", "10-digit one-time setup code",
+    "setup_code", "One-time setup code (10 digits)",
     setupCode.c_str(), SETUP_CODE_DIGITS + 1,
     "pattern='[0-9]{10}' minlength='10' maxlength='10' inputmode='numeric' "
     "title='Enter the 10-digit one-time code shown on the helper ready page. Restart the helper if it has already been used.'");

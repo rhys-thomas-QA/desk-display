@@ -99,6 +99,21 @@ bool nav_button_was_pressed() {
   return true;
 }
 
+bool nav_button_is_pressed() {
+  nav_button_update();
+  return s_stablePressed;
+}
+
+uint32_t nav_button_press_elapsed_ms() {
+  nav_button_update();
+  if (!s_stablePressed || s_pressedSinceMs == 0) return 0;
+  return millis() - s_pressedSinceMs;
+}
+
+uint32_t nav_button_long_press_ms() {
+  return NAV_BUTTON_LONG_PRESS_MS;
+}
+
 bool nav_button_was_long_pressed() {
   nav_button_update();
   if (!s_longPressPending) return false;
