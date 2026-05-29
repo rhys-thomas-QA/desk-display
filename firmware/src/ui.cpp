@@ -21,6 +21,7 @@ void ui_update(const DisplayData& d) {
   for (int i = 0; i < 25; i++) Serial.print(i < bars ? '#' : '-');
   Serial.printf("] %d%%\n", d.percent);
   Serial.printf("|  %s\n", d.resetText);
+  Serial.printf("|  %s\n", d.resetHint);
   Serial.println("+-----------------------------+");
 }
 
@@ -58,7 +59,7 @@ void ui_set_openai_enabled(bool enabled) {
 }
 
 void ui_set_status(const char* msg) {
-  Serial.printf("[ui] status: %s\n", msg);
+  if (msg && msg[0]) Serial.printf("[ui] status: %s\n", msg);
 }
 
 void ui_next_screen() {
@@ -92,6 +93,7 @@ LV_FONT_DECLARE(lora_24);
 static lv_obj_t* lbl_value;
 static lv_obj_t* lbl_detail;
 static lv_obj_t* lbl_reset;
+static lv_obj_t* lbl_usage_reset_hint;
 static lv_obj_t* lbl_status;
 static lv_obj_t* lbl_pct;
 static lv_obj_t* bar_usage;
@@ -100,6 +102,7 @@ static lv_obj_t* scr_usage;
 static lv_obj_t* lbl_openai_value;
 static lv_obj_t* lbl_openai_detail;
 static lv_obj_t* lbl_openai_reset;
+static lv_obj_t* lbl_openai_reset_hint;
 static lv_obj_t* lbl_openai_status;
 static lv_obj_t* lbl_openai_pct;
 static lv_obj_t* bar_openai;
@@ -123,6 +126,7 @@ constexpr uint32_t SCREEN_ANIM_MS = 180;
 constexpr uint32_t SCREEN_CHANGE_GUARD_MS = 260;
 constexpr lv_coord_t CONTENT_PAD = 12;
 constexpr lv_coord_t PILL_W = 72;
+constexpr lv_coord_t RESET_HINT_W = 112;
 
 static lv_coord_t content_w() {
   return lv_disp_get_hor_res(nullptr) >= 300 ? 272 : 228;
@@ -391,9 +395,14 @@ static void build_usage_screen(lv_obj_t* scr) {
   lv_label_set_text(lbl_reset, "");
   lv_obj_set_pos(lbl_reset, CONTENT_PAD, 90);
 
-  lbl_detail = make_label(card, FONT_SMALL, C_MUTED, content_inner_w());
+  lbl_detail = make_label(card, FONT_SMALL, C_MUTED, content_inner_w() - RESET_HINT_W);
   lv_label_set_text(lbl_detail, "");
   lv_obj_set_pos(lbl_detail, CONTENT_PAD, 116);
+
+  lbl_usage_reset_hint = make_label(card, FONT_SMALL, C_MUTED, RESET_HINT_W);
+  lv_obj_set_style_text_align(lbl_usage_reset_hint, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+  lv_label_set_text(lbl_usage_reset_hint, "");
+  lv_obj_set_pos(lbl_usage_reset_hint, CONTENT_PAD + content_inner_w() - RESET_HINT_W, 116);
 
   lbl_status = make_label(scr, FONT_BODY, C_STATUS, content_w());
   lv_obj_set_style_text_align(lbl_status, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
@@ -440,9 +449,14 @@ static void build_openai_screen(lv_obj_t* scr) {
   lv_label_set_text(lbl_openai_reset, "");
   lv_obj_set_pos(lbl_openai_reset, CONTENT_PAD, 90);
 
-  lbl_openai_detail = make_label(card, FONT_SMALL, C_MUTED, content_inner_w());
+  lbl_openai_detail = make_label(card, FONT_SMALL, C_MUTED, content_inner_w() - RESET_HINT_W);
   lv_label_set_text(lbl_openai_detail, "");
   lv_obj_set_pos(lbl_openai_detail, CONTENT_PAD, 116);
+
+  lbl_openai_reset_hint = make_label(card, FONT_SMALL, C_MUTED, RESET_HINT_W);
+  lv_obj_set_style_text_align(lbl_openai_reset_hint, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+  lv_label_set_text(lbl_openai_reset_hint, "");
+  lv_obj_set_pos(lbl_openai_reset_hint, CONTENT_PAD + content_inner_w() - RESET_HINT_W, 116);
 
   lbl_openai_status = make_label(scr, FONT_BODY, C_STATUS, content_w());
   lv_obj_set_style_text_align(lbl_openai_status, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
@@ -570,6 +584,7 @@ void ui_update(const DisplayData& d) {
     lv_label_set_text(lbl_value, "--");
     lv_label_set_text(lbl_reset, "");
     lv_label_set_text(lbl_detail, "");
+    lv_label_set_text(lbl_usage_reset_hint, "");
     lv_label_set_text(lbl_status, d.statusMsg);
     lv_bar_set_value(bar_usage, 0, LV_ANIM_OFF);
     return;
@@ -587,7 +602,8 @@ void ui_update(const DisplayData& d) {
   lv_label_set_text(lbl_value, valueBuf);
 
   lv_label_set_text(lbl_reset, d.resetText);
-  lv_label_set_text(lbl_detail, "monthly budget used");
+  lv_label_set_text(lbl_detail, "monthly used");
+  lv_label_set_text(lbl_usage_reset_hint, d.resetHint);
   lv_label_set_text(lbl_status, "");
 }
 
@@ -601,6 +617,7 @@ void ui_update_openai(const DisplayData& d) {
     lv_label_set_text(lbl_openai_value, "--");
     lv_label_set_text(lbl_openai_reset, "");
     lv_label_set_text(lbl_openai_detail, "");
+    lv_label_set_text(lbl_openai_reset_hint, "");
     lv_label_set_text(lbl_openai_status, d.statusMsg);
     lv_bar_set_value(bar_openai, 0, LV_ANIM_OFF);
     return;
@@ -618,7 +635,8 @@ void ui_update_openai(const DisplayData& d) {
   lv_label_set_text(lbl_openai_value, valueBuf);
 
   lv_label_set_text(lbl_openai_reset, d.resetText);
-  lv_label_set_text(lbl_openai_detail, "monthly OpenAI spend");
+  lv_label_set_text(lbl_openai_detail, "OpenAI spend");
+  lv_label_set_text(lbl_openai_reset_hint, d.resetHint);
 }
 
 void ui_update_github_status(const GitHubStatusData& d) {
@@ -670,11 +688,18 @@ void ui_show_setup_ap(const char* ssid, const char* password) {
   lv_label_set_text(lbl_value, ssid && ssid[0] ? ssid : "DeskDisplay");
   lv_label_set_text(lbl_reset, password && password[0] ? password : "No password");
   lv_label_set_text(lbl_detail, "setup WiFi password");
+  lv_label_set_text(lbl_usage_reset_hint, "");
   lv_label_set_text(lbl_status, "Open 192.168.4.1");
   lv_bar_set_value(bar_usage, 0, LV_ANIM_OFF);
 }
 
 void ui_set_status(const char* msg) {
+  if (!msg || !msg[0]) {
+    lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(lbl_status, "");
+    return;
+  }
+
   lv_obj_clear_flag(spinner, LV_OBJ_FLAG_HIDDEN);
   lv_label_set_text(lbl_status, msg);
 }

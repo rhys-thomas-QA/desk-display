@@ -15,6 +15,8 @@
 #define RETRY_INTERVAL_MS (30UL * 1000UL)
 #define GITHUB_STATUS_INTERVAL_MS  (5UL * 60UL * 1000UL)
 #define INFO_INTERVAL_MS  (10UL * 1000UL)
+#define WIFI_HEALTH_INTERVAL_MS  (10UL * 1000UL)
+#define WIFI_HEALTH_DROP_THRESHOLD 3
 #define LVGL_TICK_MS      2
 #define LOCAL_TIMEZONE    "GMT0BST,M3.5.0/1,M10.5.0/2"
 
@@ -27,6 +29,10 @@ static bool     s_firstGitHubPoll = true;
 static bool     s_firstInfoUpdate = true;
 static bool     s_navReady  = false;
 static bool     s_factoryResetting = false;
+static bool     s_wifiHealthReady = false;
+static bool     s_wifiHealthWarning = false;
+static uint8_t  s_wifiDropCount = 0;
+static uint32_t s_lastWifiHealthCheck = 0;
 
 static void lvgl_tick();
 
@@ -105,11 +111,58 @@ static DisplayData display_data_from_status(const StatusData& status, const char
     strlcpy(dd.valueText,  status.valueText,  sizeof(dd.valueText));
     strlcpy(dd.detailText, status.detailText, sizeof(dd.detailText));
     strlcpy(dd.resetText,  status.resetText,  sizeof(dd.resetText));
+    strlcpy(dd.resetHint,  status.resetHint,  sizeof(dd.resetHint));
   } else {
     strlcpy(dd.statusMsg, status.errorMsg[0] ? status.errorMsg : fallback, sizeof(dd.statusMsg));
   }
 
   return dd;
+}
+
+static void reset_wifi_health_monitor() {
+  s_wifiHealthReady = true;
+  s_wifiHealthWarning = false;
+  s_wifiDropCount = 0;
+  s_lastWifiHealthCheck = millis();
+}
+
+static void monitor_wifi_health() {
+  if (!s_wifiHealthReady || s_factoryResetting) return;
+
+  uint32_t now = millis();
+  if (now - s_lastWifiHealthCheck < WIFI_HEALTH_INTERVAL_MS) return;
+  s_lastWifiHealthCheck = now;
+
+  wl_status_t status = WiFi.status();
+  if (status == WL_CONNECTED) {
+    if (s_wifiDropCount > 0 || s_wifiHealthWarning) {
+      Serial.printf("WiFi health recovered after %u missed checks. RSSI: %d dBm\n",
+                    (unsigned)s_wifiDropCount, WiFi.RSSI());
+    }
+    s_wifiDropCount = 0;
+    if (s_wifiHealthWarning) {
+      s_wifiHealthWarning = false;
+      ui_set_status("");
+    }
+    return;
+  }
+
+  s_wifiDropCount++;
+  Serial.printf("WiFi health miss %u/%u. status=%d\n",
+                (unsigned)s_wifiDropCount,
+                (unsigned)WIFI_HEALTH_DROP_THRESHOLD,
+                (int)status);
+
+  if (s_wifiDropCount == 1 || s_wifiDropCount % WIFI_HEALTH_DROP_THRESHOLD == 0) {
+    Serial.println("Requesting WiFi reconnect");
+    WiFi.reconnect();
+  }
+
+  if (s_wifiDropCount >= WIFI_HEALTH_DROP_THRESHOLD) {
+    s_wifiHealthWarning = true;
+    ui_set_status("Unstable WiFi.\nTry better USB power.");
+    lvgl_tick();
+  }
 }
 
 void setup() {
@@ -134,6 +187,7 @@ void setup() {
   }
 
   Serial.printf("WiFi connected. IP: %s\n", WiFi.localIP().toString().c_str());
+  reset_wifi_health_monitor();
   ui_set_status("WiFi connected");
   lvgl_tick();
 
@@ -177,6 +231,8 @@ void loop() {
   lvgl_tick();
 
   uint32_t now = millis();
+  monitor_wifi_health();
+
   if (s_firstInfoUpdate || (now - s_lastInfoUpdate >= INFO_INTERVAL_MS)) {
     s_firstInfoUpdate = false;
     s_lastInfoUpdate = now;

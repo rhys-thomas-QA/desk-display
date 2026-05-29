@@ -10,6 +10,7 @@ struct StatusData {
   uint32_t barColor;        // 0xRRGGBB
   int      httpStatus;
   char     resetText[32];   // e.g. "As of 12:13 BST"
+  char     resetHint[24];   // e.g. "Resets in 19 days"
   char     errorMsg[64];
 };
 

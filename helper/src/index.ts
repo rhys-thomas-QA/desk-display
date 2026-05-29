@@ -240,7 +240,7 @@ const READY_HTML = `<!DOCTYPE html>
     <p class="subtitle">Your helper is ready. Keep this page open while the display copies its setup.</p>
 
     <div class="setup-code">{{SETUP_CODE}}</div>
-    <p class="subtitle">This one-time code is valid for {{SETUP_CODE_TTL_MINUTES}} minutes.</p>
+    <p class="subtitle">This code is one-time use only. It is valid for {{SETUP_CODE_TTL_MINUTES}} minutes and can provision one display once.</p>
 
     <div class="step">
       <div class="step-num">1</div>
@@ -252,7 +252,7 @@ const READY_HTML = `<!DOCTYPE html>
     </div>
     <div class="step">
       <div class="step-num">3</div>
-      <div>Leave helper hostname as <code>desk-display.local</code>, enter the setup code above, then save.</div>
+      <div>Leave helper hostname as <code>desk-display.local</code>, enter the one-time setup code above, then save.</div>
     </div>
     <div class="step">
       <div class="step-num">4</div>

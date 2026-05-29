@@ -435,9 +435,10 @@ static void formatResetText(char* buf, size_t len) {
                     + (uint32_t)(23 - t.tm_hour)  * 3600
                     + (uint32_t)(59 - t.tm_min)   * 60
                     + (uint32_t)(59 - t.tm_sec)   + 1;
-  uint32_t days  = secsLeft / 86400;
-  uint32_t hours = (secsLeft % 86400) / 3600;
-  snprintf(buf, len, "Resets in %ud %uh", (unsigned)days, (unsigned)hours);
+  uint32_t days = (secsLeft + 86399) / 86400;
+  snprintf(buf, len, "Resets in %u %s",
+           (unsigned)days,
+           days == 1 ? "day" : "days");
 }
 
 static const char* localZoneName(const struct tm& t) {
@@ -671,6 +672,7 @@ static void applyUsageResult(StatusData& result, int64_t totalMicroCents, int li
   result.barColor = barColorFor(pct);
   formatMoney(result.valueText, sizeof(result.valueText), displayCents);
   snprintf(result.detailText, sizeof(result.detailText), "of $%d", limit);
+  formatResetText(result.resetHint, sizeof(result.resetHint));
 
   if (refreshedAt && refreshedAt[0]) {
     time_t refreshed = 0;
@@ -682,7 +684,7 @@ static void applyUsageResult(StatusData& result, int64_t totalMicroCents, int li
       strlcpy(result.resetText, "As of latest data", sizeof(result.resetText));
     }
   } else {
-    formatResetText(result.resetText, sizeof(result.resetText));
+    strlcpy(result.resetText, "As of latest data", sizeof(result.resetText));
   }
 }
 

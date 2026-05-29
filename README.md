@@ -46,7 +46,9 @@ http://localhost:3333/ready
 
 Keep this helper page open until the display finishes provisioning or starts showing usage.
 
-The ready page also shows a 10-digit setup code. You will need this code in the next step. The code changes each time the helper app is restarted, expires after 30 minutes, and can only provision one display.
+The ready page also shows a 10-digit setup code. You will need this code in the next step.
+
+Important: this code is one-time use only. It expires after 30 minutes and can only provision one display once. If setup needs to be repeated, restart the helper app to generate a fresh code.
 
 ### 2. Connect to the display setup Wi-Fi
 
@@ -76,7 +78,7 @@ Choose your normal Wi-Fi network, enter the Wi-Fi password, and leave the helper
 desk-display.local
 ```
 
-Enter the 10-digit setup code shown on the helper ready page.
+Enter the 10-digit one-time setup code shown on the helper ready page.
 
 Save the setup.
 
@@ -126,6 +128,12 @@ The setup network switches itself off after about 15 minutes. Hold the button fo
 
 If it still does not appear, unplug and reconnect the display.
 
+### Setup Wi-Fi appears but will not connect reliably
+
+Use a short USB cable and a wall charger or powered USB hub. Weak laptop ports and thin cables can boot the display but still make the ESP32 Wi-Fi radio unstable.
+
+If the display later shows `Unstable WiFi. Try better USB power.`, move it to a stronger USB power source and restart it.
+
 ### The display says to run the helper app
 
 The display could not reach the helper on your laptop.
@@ -137,6 +145,8 @@ Check:
 - Your laptop and display are on the same Wi-Fi after setup.
 - Your firewall allows Node.js to accept local network connections.
 - The setup code entered in the display setup portal matches the code on the helper ready page.
+
+If Wi-Fi connected successfully but the display still says the helper was not found, the one-time setup code may already have been used. Restart the helper app to generate a fresh code, hold the display button for 3 seconds to reset setup, then go through setup again with the new code.
 
 If discovery fails, the helper ready page shows fallback helper addresses such as:
 

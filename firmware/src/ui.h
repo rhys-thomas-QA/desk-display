@@ -7,7 +7,8 @@ struct DisplayData {
   char     detailText[16];  // "of $200"
   uint8_t  percent;         // 0-100, drives the bar
   uint32_t barColor;        // 0xRRGGBB from server
-  char     resetText[32];   // "Resets in 19d 7h"
+  char     resetText[32];   // "As of 12:13 BST"
+  char     resetHint[24];   // "Resets in 19 days"
   char     statusMsg[64];   // shown when !valid
 };
 

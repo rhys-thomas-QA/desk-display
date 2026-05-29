@@ -82,10 +82,10 @@ bool wifi_connect(WifiSetupPortalCallback onPortalStarted, bool requireSetupCode
     "helper", "Helper app hostname (e.g. desk-display.local)",
     helperHost.c_str(), 64);
   WiFiManagerParameter setupCodeParam(
-    "setup_code", "10-digit setup code from helper app",
+    "setup_code", "10-digit one-time setup code",
     setupCode.c_str(), SETUP_CODE_DIGITS + 1,
     "pattern='[0-9]{10}' minlength='10' maxlength='10' inputmode='numeric' "
-    "title='Enter the 10-digit code shown on the helper ready page'");
+    "title='Enter the 10-digit one-time code shown on the helper ready page. Restart the helper if it has already been used.'");
 
   wm.addParameter(&helperParam);
   wm.addParameter(&setupCodeParam);
