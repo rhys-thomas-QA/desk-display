@@ -120,6 +120,7 @@ static lv_obj_t* bar_openai;
 static lv_obj_t* scr_openai;
 static lv_obj_t* scr_github;
 static lv_obj_t* scr_info;
+static lv_obj_t* scr_fun;
 static lv_obj_t* github_indicator;
 static lv_obj_t* lbl_github_indicator;
 static lv_obj_t* lbl_github_summary;
@@ -131,9 +132,15 @@ static lv_obj_t* lbl_info_ip;
 static lv_obj_t* lbl_info_email;
 static lv_obj_t* reset_bar;
 static lv_obj_t* lbl_reset_confirm_detail;
-static lv_obj_t* wifi_bars[4][3];
-static lv_obj_t* screen_dots[4][4];
+static lv_obj_t* fun_shadow;
+static lv_obj_t* fun_dots[8];
+static lv_obj_t* fun_props[28];
+static lv_obj_t* fun_parts[26];
+static lv_obj_t* wifi_bars[5][3];
+static lv_obj_t* screen_dots[5][5];
 static lv_timer_t* s_splash_timer = nullptr;
+static lv_timer_t* s_fun_timer = nullptr;
+static uint16_t  s_fun_frame = 0;
 static uint8_t   s_screen_index = 0;
 static bool      s_openai_enabled = false;
 static bool      s_splash_active = false;
@@ -146,6 +153,12 @@ constexpr uint32_t SCREEN_CHANGE_GUARD_MS = 260;
 constexpr lv_coord_t CONTENT_PAD = 12;
 constexpr lv_coord_t PILL_W = 72;
 constexpr lv_coord_t RESET_HINT_W = 112;
+constexpr uint8_t SCREEN_COUNT = 5;
+constexpr lv_coord_t FUN_MASCOT_W = 140;
+constexpr lv_coord_t FUN_MASCOT_H = 120;
+constexpr uint32_t C_PROP_BLUE = 0x315ad7;
+constexpr uint32_t C_PROP_GREEN = 0x26c96f;
+constexpr uint32_t C_PROP_PURPLE = 0x7c4dff;
 
 static lv_coord_t content_w() {
   return lv_disp_get_hor_res(nullptr) >= 300 ? 272 : 228;
@@ -398,7 +411,7 @@ static uint8_t wifi_level_from_rssi(bool connected, int rssi) {
 }
 
 static uint8_t visible_screen_count() {
-  return s_openai_enabled ? 4 : 3;
+  return s_openai_enabled ? SCREEN_COUNT : (SCREEN_COUNT - 1);
 }
 
 static int visible_dot_index(uint8_t screen_index) {
@@ -406,11 +419,12 @@ static int visible_dot_index(uint8_t screen_index) {
   if (screen_index == 1) return s_openai_enabled ? 1 : -1;
   if (screen_index == 2) return s_openai_enabled ? 2 : 1;
   if (screen_index == 3) return s_openai_enabled ? 3 : 2;
+  if (screen_index == 4) return s_openai_enabled ? 4 : 3;
   return 0;
 }
 
 static void add_screen_dots(lv_obj_t* scr, uint8_t screen_index) {
-  for (uint8_t i = 0; i < 4; i++) {
+  for (uint8_t i = 0; i < SCREEN_COUNT; i++) {
     screen_dots[screen_index][i] = make_rect(scr, 0, 0, 6, 6, C_CARD, 3);
     lv_obj_set_style_bg_opa(screen_dots[screen_index][i], LV_OPA_70, LV_PART_MAIN);
   }
@@ -425,8 +439,8 @@ static void update_screen_dots() {
   const lv_coord_t x0 = (lv_disp_get_hor_res(nullptr) - total_w) / 2;
   const lv_coord_t y = lv_disp_get_ver_res(nullptr) - 11;
 
-  for (uint8_t screen = 0; screen < 4; screen++) {
-    for (uint8_t i = 0; i < 4; i++) {
+  for (uint8_t screen = 0; screen < SCREEN_COUNT; screen++) {
+    for (uint8_t i = 0; i < SCREEN_COUNT; i++) {
       lv_obj_t* d = screen_dots[screen][i];
       if (!d) continue;
 
@@ -513,6 +527,259 @@ static void build_reset_screen(lv_obj_t* scr) {
   lv_obj_set_style_text_align(lbl_reset_confirm_detail, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_label_set_text(lbl_reset_confirm_detail, "Release to cancel");
   lv_obj_align(lbl_reset_confirm_detail, LV_ALIGN_TOP_MID, 0, 178);
+}
+
+static void hide_fun_decor() {
+  for (uint8_t i = 0; i < 8; i++) {
+    if (fun_dots[i]) lv_obj_add_flag(fun_dots[i], LV_OBJ_FLAG_HIDDEN);
+  }
+  for (uint8_t i = 0; i < 28; i++) {
+    if (fun_props[i]) lv_obj_add_flag(fun_props[i], LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+static void hide_fun_parts() {
+  for (uint8_t i = 0; i < 26; i++) {
+    if (fun_parts[i]) lv_obj_add_flag(fun_parts[i], LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+static void place_fun_dot(uint8_t index, lv_coord_t x, lv_coord_t y,
+                          lv_coord_t size, uint32_t color) {
+  if (index >= 8 || !fun_dots[index]) return;
+  lv_obj_set_pos(fun_dots[index], x, y);
+  lv_obj_set_size(fun_dots[index], size, size);
+  lv_obj_set_style_bg_color(fun_dots[index], lv_color_hex(color), LV_PART_MAIN);
+  lv_obj_set_style_radius(fun_dots[index], size / 2, LV_PART_MAIN);
+  lv_obj_clear_flag(fun_dots[index], LV_OBJ_FLAG_HIDDEN);
+}
+
+static void place_fun_prop(uint8_t index, lv_coord_t x, lv_coord_t y,
+                           lv_coord_t w, lv_coord_t h, uint32_t color,
+                           int radius = 0) {
+  if (index >= 28 || !fun_props[index]) return;
+  lv_obj_set_pos(fun_props[index], x, y);
+  lv_obj_set_size(fun_props[index], w, h);
+  lv_obj_set_style_bg_color(fun_props[index], lv_color_hex(color), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(fun_props[index], LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(fun_props[index], 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(fun_props[index], radius, LV_PART_MAIN);
+  lv_obj_clear_flag(fun_props[index], LV_OBJ_FLAG_HIDDEN);
+}
+
+static void place_fun_outline(uint8_t index, lv_coord_t x, lv_coord_t y,
+                              lv_coord_t w, lv_coord_t h, uint32_t color,
+                              int radius, int border) {
+  if (index >= 28 || !fun_props[index]) return;
+  lv_obj_set_pos(fun_props[index], x, y);
+  lv_obj_set_size(fun_props[index], w, h);
+  lv_obj_set_style_bg_opa(fun_props[index], LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_color(fun_props[index], lv_color_hex(color), LV_PART_MAIN);
+  lv_obj_set_style_border_width(fun_props[index], border, LV_PART_MAIN);
+  lv_obj_set_style_radius(fun_props[index], radius, LV_PART_MAIN);
+  lv_obj_clear_flag(fun_props[index], LV_OBJ_FLAG_HIDDEN);
+}
+
+static void place_fun_part(uint8_t index, lv_coord_t x, lv_coord_t y,
+                           lv_coord_t w, lv_coord_t h, uint32_t color) {
+  if (index >= 26 || !fun_parts[index]) return;
+  lv_obj_set_pos(fun_parts[index], x, y);
+  lv_obj_set_size(fun_parts[index], w, h);
+  lv_obj_set_style_bg_color(fun_parts[index], lv_color_hex(color), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(fun_parts[index], LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(fun_parts[index], 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(fun_parts[index], 0, LV_PART_MAIN);
+  lv_obj_clear_flag(fun_parts[index], LV_OBJ_FLAG_HIDDEN);
+}
+
+enum FunPose : uint8_t {
+  FUN_POSE_SEARCH,
+  FUN_POSE_TERMINAL,
+  FUN_POSE_LIFT,
+  FUN_POSE_SUCCESS
+};
+
+static void place_fun_shadow(lv_coord_t x, lv_coord_t y, lv_coord_t jump) {
+  if (!fun_shadow) return;
+  lv_coord_t shadow_w = 88 - (jump / 2);
+  if (shadow_w < 54) shadow_w = 54;
+  lv_obj_set_size(fun_shadow, shadow_w, 10);
+  lv_obj_set_pos(fun_shadow, x + ((FUN_MASCOT_W - shadow_w) / 2), y + 112 + jump / 3);
+  lv_obj_set_style_bg_opa(fun_shadow, jump > 12 ? LV_OPA_30 : LV_OPA_50, LV_PART_MAIN);
+}
+
+static void draw_fun_mascot(FunPose pose, lv_coord_t x, lv_coord_t y,
+                            lv_coord_t jump, uint16_t t) {
+  hide_fun_parts();
+  y -= jump;
+  place_fun_shadow(x, y, jump);
+
+  if (pose == FUN_POSE_SEARCH) {
+    place_fun_part(0, x + 30, y + 20, 82, 72, C_MASCOT);
+    place_fun_part(1, x + 18, y + 52, 36, 10, C_MASCOT);
+    place_fun_part(2, x + 104, y + 56, 20, 18, C_MASCOT);
+    place_fun_part(3, x + 46, y + 92, 12, 22, C_MASCOT);
+    place_fun_part(4, x + 82, y + 92, 12, 22, C_MASCOT);
+    place_fun_part(5, x + 52, y + 44, 7, 22, C_BG);
+    place_fun_part(6, x + 84, y + 44, 7, 22, C_BG);
+    return;
+  }
+
+  if (pose == FUN_POSE_TERMINAL) {
+    lv_coord_t bob = (t % 20 < 10) ? 0 : 4;
+    place_fun_part(0, x + 20, y + 26 + bob, 92, 78, C_MASCOT);
+    place_fun_part(1, x + 100, y + 58 + bob, 26, 12, C_MASCOT);
+    place_fun_part(2, x + 48, y + 104 + bob, 12, 18, C_MASCOT);
+    place_fun_part(3, x + 82, y + 104 + bob, 12, 18, C_MASCOT);
+    place_fun_part(4, x + 52, y + 51 + bob, 7, 22, C_BG);
+    place_fun_part(5, x + 82, y + 51 + bob, 7, 22, C_BG);
+    return;
+  }
+
+  if (pose == FUN_POSE_LIFT) {
+    place_fun_part(0, x + 26, y + 38, 88, 70, C_MASCOT);
+    place_fun_part(1, x + 12, y + 18, 18, 62, C_MASCOT);
+    place_fun_part(2, x + 110, y + 18, 18, 62, C_MASCOT);
+    place_fun_part(3, x + 42, y + 108, 12, 20, C_MASCOT);
+    place_fun_part(4, x + 86, y + 108, 12, 20, C_MASCOT);
+    place_fun_part(5, x + 50, y + 55, 7, 22, C_BG);
+    place_fun_part(6, x + 82, y + 55, 7, 22, C_BG);
+    return;
+  }
+
+  place_fun_part(0, x + 20, y + 24, 100, 76, C_MASCOT);
+  place_fun_part(1, x + 0, y + 56 - (t % 12 < 6 ? 0 : 8), 28, 14, C_MASCOT);
+  place_fun_part(2, x + 112, y + 56 - (t % 12 < 6 ? 8 : 0), 28, 14, C_MASCOT);
+  place_fun_part(3, x + 42, y + 100, 12, 22, C_MASCOT);
+  place_fun_part(4, x + 86, y + 100, 12, 22, C_MASCOT);
+  place_fun_part(5, x + 50, y + 51, 7, 22, C_BG);
+  place_fun_part(6, x + 84, y + 51, 7, 22, C_BG);
+}
+
+static void draw_fun_scene_search(lv_coord_t mascot_x, lv_coord_t mascot_y, uint16_t t) {
+  lv_coord_t bob = (t % 18 < 9) ? 0 : 3;
+  draw_fun_mascot(FUN_POSE_SEARCH, mascot_x + 18, mascot_y + 18 + bob, 0, t);
+
+  lv_coord_t lens_x = mascot_x - 18 + (t % 16 < 8 ? 0 : 3);
+  lv_coord_t lens_y = mascot_y + 52 - (t % 12 < 6 ? 0 : 2);
+  place_fun_outline(0, lens_x, lens_y, 48, 48, C_PROP_BLUE, 24, 5);
+  place_fun_prop(1, lens_x + 38, lens_y + 41, 10, 8, C_PROP_GREEN, 1);
+  place_fun_prop(2, lens_x + 47, lens_y + 49, 10, 8, C_PROP_GREEN, 1);
+  place_fun_prop(3, lens_x + 56, lens_y + 57, 10, 8, C_PROP_GREEN, 1);
+  place_fun_dot(0, lens_x + 16 + (t % 5), lens_y + 14, 5, C_STATUS);
+  place_fun_dot(1, lens_x + 27, lens_y + 24 + (t % 4), 5, C_PROP_PURPLE);
+  place_fun_dot(2, lens_x + 18, lens_y + 31, 4, C_TEXT);
+}
+
+static void draw_fun_scene_terminal(lv_coord_t mascot_x, lv_coord_t mascot_y, uint16_t t) {
+  lv_coord_t sway = (t % 24 < 12) ? 0 : 4;
+  draw_fun_mascot(FUN_POSE_TERMINAL, mascot_x + sway, mascot_y + 20, 0, t);
+
+  lv_coord_t tx = mascot_x + 108;
+  lv_coord_t ty = mascot_y + 58;
+  place_fun_prop(0, tx, ty, 90, 72, C_PROP_BLUE, 4);
+  place_fun_prop(1, tx + 4, ty + 4, 82, 12, C_PILL, 2);
+  place_fun_prop(2, tx + 9, ty + 8, 6, 5, C_STATUS);
+  place_fun_prop(3, tx + 21, ty + 8, 6, 5, C_PROP_PURPLE);
+  place_fun_prop(4, tx + 33, ty + 8, 6, 5, C_MUTED);
+
+  for (uint8_t i = 0; i < 5; i++) {
+    lv_coord_t w = 18 + ((i * 9 + t) % 32);
+    place_fun_prop(5 + i, tx + 14, ty + 24 + (i * 9), w, 5, C_PROP_GREEN, 1);
+  }
+
+  lv_coord_t cx = tx + 62 + ((t / 8) % 3) * 9;
+  place_fun_prop(10, cx, ty + 58, 6, 6, C_PROP_GREEN);
+  place_fun_prop(11, cx + 8, ty + 52, 6, 6, C_PROP_GREEN);
+  place_fun_prop(12, cx + 16, ty + 58, 6, 6, C_PROP_GREEN);
+}
+
+static void draw_fun_scene_lift(lv_coord_t mascot_x, lv_coord_t mascot_y, uint16_t t) {
+  uint8_t phase = t % 36;
+  uint8_t lift = phase < 18 ? phase : 36 - phase;
+  lv_coord_t body_x = mascot_x + 1;
+  lv_coord_t body_y = mascot_y + 44 + (lift > 10 ? 0 : 5);
+  lv_coord_t bar_y = body_y + 6 - lift;
+  draw_fun_mascot(FUN_POSE_LIFT, body_x, body_y, 0, t);
+
+  lv_coord_t bar_x = body_x - 34;
+  place_fun_prop(0, bar_x, bar_y + 12, 198, 6, C_MUTED, 2);
+  place_fun_prop(1, bar_x - 8, bar_y + 2, 14, 26, C_PROP_BLUE, 2);
+  place_fun_prop(2, bar_x + 6, bar_y - 2, 10, 34, C_PROP_BLUE, 2);
+  place_fun_prop(3, bar_x + 182, bar_y - 2, 10, 34, C_PROP_BLUE, 2);
+  place_fun_prop(4, bar_x + 192, bar_y + 2, 14, 26, C_PROP_BLUE, 2);
+  place_fun_prop(5, body_x + 8, bar_y + 18, 24, 12, C_MASCOT, 0);
+  place_fun_prop(6, body_x + 108, bar_y + 18, 24, 12, C_MASCOT, 0);
+}
+
+static void draw_fun_scene_success(lv_coord_t mascot_x, lv_coord_t mascot_y, uint16_t t) {
+  uint8_t phase = t % 28;
+  lv_coord_t lift = phase < 14 ? phase : 28 - phase;
+  lv_coord_t body_x = mascot_x;
+  lv_coord_t body_y = mascot_y + 28;
+  draw_fun_mascot(FUN_POSE_SUCCESS, body_x, body_y, lift, t);
+
+  lv_coord_t badge_x = body_x + 44;
+  lv_coord_t badge_y = body_y - 6 - lift - (t % 14 < 7 ? 0 : 4);
+  place_fun_prop(0, badge_x, badge_y, 52, 52, C_PROP_GREEN, 26);
+  place_fun_prop(1, badge_x + 14, badge_y + 27, 8, 8, C_TEXT, 1);
+  place_fun_prop(2, badge_x + 22, badge_y + 34, 8, 8, C_TEXT, 1);
+  place_fun_prop(3, badge_x + 30, badge_y + 26, 8, 8, C_TEXT, 1);
+  place_fun_prop(4, badge_x + 38, badge_y + 18, 8, 8, C_TEXT, 1);
+
+  for (uint8_t i = 0; i < 5; i++) {
+    lv_coord_t px = body_x + 14 + (i * 30);
+    lv_coord_t py = body_y + 10 + ((i * 5 + t) % 12);
+    place_fun_dot(i, px, py, (i % 2) ? 4 : 6, i % 2 ? C_STATUS : C_PROP_GREEN);
+  }
+}
+
+static void fun_timer_cb(lv_timer_t*) {
+  if (!scr_fun || lv_scr_act() != scr_fun || !fun_parts[0]) return;
+
+  const lv_coord_t screen_w = lv_disp_get_hor_res(nullptr);
+  const lv_coord_t screen_h = lv_disp_get_ver_res(nullptr);
+  const lv_coord_t base_x = (screen_w - FUN_MASCOT_W) / 2;
+  const lv_coord_t base_y = (screen_h - FUN_MASCOT_H) / 2 + 8;
+
+  hide_fun_decor();
+  s_fun_frame++;
+
+  const uint16_t local = s_fun_frame % 280;
+  const uint8_t scene = local / 70;
+  const uint16_t t = local % 70;
+
+  if (scene == 0) {
+    draw_fun_scene_search(base_x, base_y, t);
+    return;
+  }
+
+  if (scene == 1) {
+    draw_fun_scene_terminal(base_x, base_y, t);
+    return;
+  }
+
+  if (scene == 2) {
+    draw_fun_scene_lift(base_x, base_y, t);
+    return;
+  }
+
+  draw_fun_scene_success(base_x, base_y, t);
+}
+
+static void build_fun_screen(lv_obj_t* scr) {
+  style_screen(scr);
+  fun_shadow = nullptr;
+
+  for (uint8_t i = 0; i < 7; i++) {
+    fun_parts[i] = make_rect(scr, 0, 0, 5, 5, C_MASCOT);
+    lv_obj_add_flag(fun_parts[i], LV_OBJ_FLAG_HIDDEN);
+  }
+
+  for (uint8_t i = 0; i < 7; i++) {
+    fun_props[i] = make_rect(scr, 0, 0, 5, 5, C_STATUS);
+    lv_obj_add_flag(fun_props[i], LV_OBJ_FLAG_HIDDEN);
+  }
 }
 
 static void build_usage_screen(lv_obj_t* scr) {
@@ -717,6 +984,7 @@ void ui_init() {
   scr_openai = lv_obj_create(nullptr);
   scr_github = lv_obj_create(nullptr);
   scr_info = lv_obj_create(nullptr);
+  scr_fun = lv_obj_create(nullptr);
 
   build_splash_screen(scr_splash);
   build_reset_screen(scr_reset);
@@ -724,6 +992,7 @@ void ui_init() {
   build_openai_screen(scr_openai);
   build_github_screen(scr_github);
   build_info_screen(scr_info);
+  build_fun_screen(scr_fun);
 
   s_screen_index = 0;
   s_last_screen_change = millis();
@@ -739,6 +1008,7 @@ static lv_obj_t* screen_for_index(uint8_t index) {
   if (index == 1 && s_openai_enabled) return scr_openai;
   if (index == 2) return scr_github;
   if (index == 3) return scr_info;
+  if (index == 4) return scr_fun;
   return scr_usage;
 }
 
@@ -754,7 +1024,7 @@ void ui_set_openai_enabled(bool enabled) {
 
 void ui_set_wifi_signal(bool connected, int rssi) {
   const uint8_t level = wifi_level_from_rssi(connected, rssi);
-  for (uint8_t screen = 0; screen < 4; screen++) {
+  for (uint8_t screen = 0; screen < SCREEN_COUNT; screen++) {
     for (uint8_t i = 0; i < 3; i++) {
       lv_obj_t* bar = wifi_bars[screen][i];
       if (!bar) continue;
@@ -942,7 +1212,7 @@ void ui_next_screen() {
     return;
   }
 
-  if (!scr_usage || !scr_openai || !scr_github || !scr_info ||
+  if (!scr_usage || !scr_openai || !scr_github || !scr_info || !scr_fun ||
       now - s_last_screen_change < SCREEN_CHANGE_GUARD_MS) {
     Serial.println("Screen switch ignored");
     return;
@@ -950,11 +1220,15 @@ void ui_next_screen() {
 
   s_last_screen_change = now;
   do {
-    s_screen_index = (s_screen_index + 1) % 4;
+    s_screen_index = (s_screen_index + 1) % SCREEN_COUNT;
   } while (s_screen_index == 1 && !s_openai_enabled);
 
   lv_obj_t* next = screen_for_index(s_screen_index);
   update_screen_dots();
+  if (next == scr_fun) {
+    if (!s_fun_timer) s_fun_timer = lv_timer_create(fun_timer_cb, 90, nullptr);
+    s_fun_frame = 0;
+  }
   Serial.printf("Switching to screen %u\n", s_screen_index);
   lv_scr_load_anim(next, LV_SCR_LOAD_ANIM_OVER_LEFT, SCREEN_ANIM_MS, 0, false);
 }
