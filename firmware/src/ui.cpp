@@ -53,6 +53,10 @@ void ui_show_setup_ap(const char* ssid, const char* password) {
   Serial.printf("[ui] setup ap: ssid=%s password=%s\n", ssid, password);
 }
 
+void ui_set_openai_enabled(bool enabled) {
+  Serial.printf("[ui] openai screen: %s\n", enabled ? "enabled" : "disabled");
+}
+
 void ui_set_status(const char* msg) {
   Serial.printf("[ui] status: %s\n", msg);
 }
@@ -112,6 +116,7 @@ static lv_obj_t* lbl_info_wifi;
 static lv_obj_t* lbl_info_ip;
 static lv_obj_t* lbl_info_email;
 static uint8_t   s_screen_index = 0;
+static bool      s_openai_enabled = false;
 static uint32_t  s_last_screen_change = 0;
 
 constexpr uint32_t SCREEN_ANIM_MS = 180;
@@ -540,6 +545,22 @@ void ui_init() {
   lv_scr_load(scr_usage);
 }
 
+static lv_obj_t* screen_for_index(uint8_t index) {
+  if (index == 1 && s_openai_enabled) return scr_openai;
+  if (index == 2) return scr_github;
+  if (index == 3) return scr_info;
+  return scr_usage;
+}
+
+void ui_set_openai_enabled(bool enabled) {
+  s_openai_enabled = enabled;
+  if (!enabled && s_screen_index == 1) {
+    s_screen_index = 0;
+    lv_scr_load(scr_usage);
+  }
+  Serial.printf("OpenAI screen %s\n", enabled ? "enabled" : "disabled");
+}
+
 void ui_update(const DisplayData& d) {
   lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
   lv_label_set_text(lbl_status, "");
@@ -667,12 +688,11 @@ void ui_next_screen() {
   }
 
   s_last_screen_change = now;
-  s_screen_index = (s_screen_index + 1) % 4;
+  do {
+    s_screen_index = (s_screen_index + 1) % 4;
+  } while (s_screen_index == 1 && !s_openai_enabled);
 
-  lv_obj_t* next = scr_usage;
-  if (s_screen_index == 1) next = scr_openai;
-  if (s_screen_index == 2) next = scr_github;
-  if (s_screen_index == 3) next = scr_info;
+  lv_obj_t* next = screen_for_index(s_screen_index);
   Serial.printf("Switching to screen %u\n", s_screen_index);
   lv_scr_load_anim(next, LV_SCR_LOAD_ANIM_OVER_LEFT, SCREEN_ANIM_MS, 0, false);
 }

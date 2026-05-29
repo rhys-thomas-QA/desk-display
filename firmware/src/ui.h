@@ -25,5 +25,6 @@ void ui_update_openai(const DisplayData& data);
 void ui_update_github_status(const GitHubStatusData& data);
 void ui_update_info(const InfoData& data);
 void ui_show_setup_ap(const char* ssid, const char* password);
+void ui_set_openai_enabled(bool enabled);
 void ui_set_status(const char* msg);
 void ui_next_screen();

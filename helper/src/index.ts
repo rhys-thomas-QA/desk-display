@@ -131,7 +131,7 @@ const SETUP_HTML = `<!DOCTYPE html>
 
       <label for="openAiKey">OpenAI Organization Key <span style="color:#484f58;">(optional)</span></label>
       <input id="openAiKey" type="password" name="openAiKey" placeholder="sk-..." autocomplete="off" />
-      <p class="hint">Use an OpenAI Admin/API key that can read organization costs.</p>
+      <p class="hint">Use an OpenAI Admin API key with Usage Read access. Leave blank to hide the OpenAI screen.</p>
 
       <button type="submit">Save &amp; Continue</button>
     </form>
@@ -260,7 +260,7 @@ const READY_HTML = `<!DOCTYPE html>
     </div>
     <div class="step">
       <div class="step-num">5</div>
-      <div>When provisioned, the display updates by itself and cycles through Usage, OpenAI, GitHub, and Info.</div>
+      <div>When provisioned, the display updates by itself and cycles through Usage, OpenAI if configured, GitHub, and Info.</div>
     </div>
 
     {{NETWORK_URLS}}

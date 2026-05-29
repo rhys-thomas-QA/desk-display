@@ -24,6 +24,7 @@ struct GitHubStatusData {
 
 bool       api_is_provisioned();
 bool       api_has_email();
+bool       api_has_openai_key();
 bool       api_provision();
 bool       api_refresh_email();
 void       api_get_email(char* buf, size_t len);

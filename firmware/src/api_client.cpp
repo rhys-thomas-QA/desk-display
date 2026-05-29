@@ -182,6 +182,10 @@ bool api_has_email() {
   return prefs().isKey("email") && prefs().getString("email", "").length() > 0;
 }
 
+bool api_has_openai_key() {
+  return prefs().isKey("openai_key") && prefs().getString("openai_key", "").length() > 0;
+}
+
 void api_get_email(char* buf, size_t len) {
   String email = prefs().isKey("email") ? prefs().getString("email", "") : "";
   strlcpy(buf, email.length() ? email.c_str() : "Unavailable", len);

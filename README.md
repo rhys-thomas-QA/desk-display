@@ -12,7 +12,7 @@ Your display has already been flashed and assembled. You only need to connect it
 - Node.js 20 or newer installed on your laptop.
 - Your Claude email address.
 - An Anthropic analytics API key with permission to read organization analytics.
-- Optional: an OpenAI Admin/API key with permission to read organization costs.
+- Optional: an OpenAI Admin API key with Usage Read access. Leave this blank if you do not want the OpenAI screen.
 
 ## Setup
 
@@ -36,7 +36,7 @@ Enter:
 
 - your Anthropic analytics API key
 - your Claude email address
-- optionally, your OpenAI organization key
+- optionally, your OpenAI organization key. If left blank, the display will skip the OpenAI screen.
 
 When setup succeeds, the helper will show a ready page:
 
@@ -99,7 +99,7 @@ The helper is only needed for first-time setup or if you reset the display later
 Press the button to switch screens:
 
 - Usage: your current monthly Claude usage.
-- OpenAI: current-month OpenAI organization API spend, if an OpenAI key was provided.
+- OpenAI: current-month OpenAI organization API spend. This screen only appears if an OpenAI key was provided.
 - GitHub: current GitHub service status.
 - Info: Wi-Fi status, IP address, and configured Claude email.
 
@@ -174,9 +174,9 @@ Reset the display and run setup again if the email or key might be wrong.
 
 The GitHub screen turns orange when GitHub reports a degraded service or when the display cannot check GitHub status. The affected area or error should appear below the indicator.
 
-### The OpenAI screen says OpenAI not set
+### The OpenAI screen is missing
 
-The OpenAI key is optional. Reset the display and run setup again if you want to add one later.
+The OpenAI key is optional. The display hides this screen unless an OpenAI key was provided during setup. Reset the display and run setup again if you want to add one later.
 
 ### The OpenAI screen shows an HTTP error
 

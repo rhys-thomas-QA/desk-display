@@ -118,6 +118,7 @@ void setup() {
 
   display_init();
   ui_init();
+  ui_set_openai_enabled(api_has_openai_key());
   nav_button_init();
   s_navReady = true;
   ui_set_status("Booting...");
@@ -158,6 +159,7 @@ void setup() {
       delay(3000);
       lvgl_tick();
     }
+    ui_set_openai_enabled(api_has_openai_key());
   }
 
   if (!api_has_email()) {
@@ -203,7 +205,7 @@ void loop() {
         DisplayData dd = {};
         strlcpy(dd.statusMsg, "NTP sync failed", sizeof(dd.statusMsg));
         ui_update(dd);
-        ui_update_openai(dd);
+        if (api_has_openai_key()) ui_update_openai(dd);
         s_firstPoll = true; // retry next iteration
         return;
       }
@@ -213,16 +215,18 @@ void loop() {
       ui_set_status("Provisioning...");
       lvgl_tick();
       if (!api_provision()) {
+        ui_set_openai_enabled(api_has_openai_key());
         DisplayData dd = {};
         api_get_last_error(dd.statusMsg, sizeof(dd.statusMsg));
         if (!dd.statusMsg[0]) {
           strlcpy(dd.statusMsg, "Run helper app to provision", sizeof(dd.statusMsg));
         }
         ui_update(dd);
-        ui_update_openai(dd);
+        if (api_has_openai_key()) ui_update_openai(dd);
         s_lastPoll = millis() - (POLL_INTERVAL_MS - RETRY_INTERVAL_MS);
         return;
       }
+      ui_set_openai_enabled(api_has_openai_key());
     }
 
     ui_set_status("Fetching...");
@@ -233,14 +237,17 @@ void loop() {
       ui_set_status("Reprovisioning...");
       lvgl_tick();
       if (api_provision()) {
+        ui_set_openai_enabled(api_has_openai_key());
         status = api_poll();
       }
     }
 
     ui_update(display_data_from_status(status, "Fetch failed"));
 
-    StatusData openaiStatus = api_poll_openai();
-    ui_update_openai(display_data_from_status(openaiStatus, "OpenAI fetch failed"));
+    if (api_has_openai_key()) {
+      StatusData openaiStatus = api_poll_openai();
+      ui_update_openai(display_data_from_status(openaiStatus, "OpenAI fetch failed"));
+    }
 
     if (!status.valid) {
       s_lastPoll = millis() - (POLL_INTERVAL_MS - RETRY_INTERVAL_MS);
